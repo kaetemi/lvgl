@@ -176,6 +176,8 @@ if(CONFIG_LV_USE_DRAW_VG_LITE)
     set(REF_IMGS_PATH "ref_imgs_vg_lite/")
 elseif(CONFIG_LV_USE_DRAW_NANOVG)
     set(REF_IMGS_PATH "ref_imgs_nanovg/")
+elseif(CONFIG_LV_USE_DRAW_EVE5)
+    set(REF_IMGS_PATH "ref_imgs_eve5/")
 else()
     set(REF_IMGS_PATH "ref_imgs/")
 endif()
@@ -185,6 +187,15 @@ endif()
 target_compile_definitions(lvgl PUBLIC
     ${COMPILE_DEFINITIONS}
     REF_IMGS_PATH="${REF_IMGS_PATH}")
+
+# Optionally keep every screenshot the tests take, matching or not, for
+# comparing renderers side by side
+set(LV_TEST_SCREENSHOT_OUTPUT_PATH "" CACHE STRING
+    "Folder to write every test screenshot to, with a trailing slash")
+if(LV_TEST_SCREENSHOT_OUTPUT_PATH)
+    target_compile_definitions(lvgl PUBLIC
+        LV_TEST_SCREENSHOT_OUTPUT_PATH="${LV_TEST_SCREENSHOT_OUTPUT_PATH}")
+endif()
 
 if(CONFIG_LV_USE_DRAW_VG_LITE AND NON_AMD64_BUILD)
     # On 32-bit systems the output of ThorVG's anti-aliasing algorithm deviates
@@ -214,6 +225,7 @@ file(GLOB_RECURSE TEST_IMAGES_SRC
 
 add_library(test_common STATIC
     src/lv_test_init.c
+    src/lv_test_eve5.c
     unity/unity.c
     ${TEST_ASSETS_SRC}
     ${TEST_IMAGES_SRC}
@@ -260,6 +272,13 @@ if(NOT RUBY_EXECUTABLE)
 endif()
 
 set(generate_test_runner_rb ${LVGL_TEST_DIR}/unity/generate_test_runner.rb)
+
+if(CONFIG_LV_USE_EVE5)
+    set(LV_TEST_EVE_DEVICE "BT8XX" CACHE STRING
+        "EVE device the EVE5 tests open, the start of the HAL host name")
+    set(LV_TEST_EVE_CHIP "BT820" CACHE STRING
+        "Chip the EVE5 tests emulate in multi graphics target builds")
+endif()
 set(generate_test_runner_config ${LVGL_TEST_DIR}/config.yml)
 
 foreach(test_case_fname ${TEST_CASE_FILES})
@@ -296,6 +315,16 @@ foreach(test_case_fname ${TEST_CASE_FILES})
         NAME ${test_name}
         WORKING_DIRECTORY ${LVGL_TEST_DIR}
         COMMAND ${test_name})
+
+    if(CONFIG_LV_USE_EVE5)
+        # Select the EVE device of the HAL without prompting, see
+        # EVE_Util_Desktop.c. The emulator runs without a window.
+        set(eve5_test_env
+            "EVE_DEVICE=${LV_TEST_EVE_DEVICE}"
+            "EVE_CHIP=${LV_TEST_EVE_CHIP}"
+            "EVE_HEADLESS=1")
+        set_tests_properties(${test_name} PROPERTIES ENVIRONMENT "${eve5_test_env}")
+    endif()
 
     if(CONFIG_LV_USE_NANOVG_TEST_HEADLESS)
         # Force the Mesa driver so that rendering is reproducible

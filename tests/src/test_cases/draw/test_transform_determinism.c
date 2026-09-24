@@ -52,9 +52,18 @@ static void invalidate_middle_and_compare(lv_obj_t * img)
     lv_display_t * disp = lv_display_get_default();
     lv_draw_buf_t * front = lv_display_get_buf_active(disp);
     uint32_t size = front->header.stride * front->header.h;
+    /*A display rendered by a GPU does not have its frame in the draw buffer,
+     *compare it as screenshots see it*/
+    uint8_t * frame = NULL;
+    if(front->data == NULL) {
+        size = (uint32_t)lv_display_get_horizontal_resolution(disp) * lv_display_get_vertical_resolution(disp) * 4;
+        frame = lv_malloc(size);
+        TEST_ASSERT_NOT_NULL(frame);
+    }
     uint8_t * full_render = lv_malloc(size);
     TEST_ASSERT_NOT_NULL(full_render);
-    lv_memcpy(full_render, front->data, size);
+    if(frame) TEST_ASSERT_TRUE(lv_test_screenshot_read(full_render));
+    else lv_memcpy(full_render, front->data, size);
 
     /*Invalidate only the middle part of the image and render again*/
     lv_area_t area;
@@ -70,9 +79,15 @@ static void invalidate_middle_and_compare(lv_obj_t * img)
 
     /*Compare and release the buffer before asserting, else a failing assert
      *aborts the test and leaks `full_render`*/
+    const uint8_t * partial_render = front->data;
+    if(frame) {
+        TEST_ASSERT_TRUE(lv_test_screenshot_read(frame));
+        partial_render = frame;
+    }
     uint32_t diff_at = 0;
-    while(diff_at < size && full_render[diff_at] == ((const uint8_t *)front->data)[diff_at]) diff_at++;
+    while(diff_at < size && full_render[diff_at] == partial_render[diff_at]) diff_at++;
     lv_free(full_render);
+    lv_free(frame);
 
     if(diff_at < size) {
         char msg[128];

@@ -25,6 +25,7 @@
 #include LV_STDARG_INCLUDE
 #include <errno.h>
 #include "../../libs/lodepng/lodepng.h"
+#include "../../core/lv_global.h"
 
 #ifdef _WIN32
     #include <direct.h>
@@ -45,6 +46,10 @@
 #ifndef REF_IMG_TOLERANCE
     #define REF_IMG_TOLERANCE 0
 #endif
+
+/* When defined, every screenshot is also written to this folder, under the
+ * reference image name, whether it matches or not */
+/* #define LV_TEST_SCREENSHOT_OUTPUT_PATH "" */
 
 #define ERR_FILE_NOT_FOUND  -1
 #define ERR_PNG             -2
@@ -69,10 +74,28 @@ static void create_folders_if_needed(const char * path) ;
 /**********************
  *      MACROS
  **********************/
+#define _state LV_GLOBAL_DEFAULT()->test_state
 
 /**********************
  *   GLOBAL FUNCTIONS
  **********************/
+
+void lv_test_screenshot_set_read_cb(lv_test_screenshot_read_cb_t read_cb)
+{
+    _state.screenshot_read_cb = read_cb;
+}
+
+bool lv_test_screenshot_read(uint8_t * buf)
+{
+    LV_CHECK_ARG(buf != NULL, return false);
+
+    lv_display_t * disp = lv_display_get_default();
+    if(_state.screenshot_read_cb) {
+        return _state.screenshot_read_cb(disp, buf, (uint32_t)lv_display_get_horizontal_resolution(disp) * 4);
+    }
+    buf_to_xrgb8888(lv_display_get_buf_active(disp), buf);
+    return true;
+}
 
 lv_test_screenshot_result_t lv_test_screenshot_compare(const char * fn_ref)
 {
@@ -98,15 +121,38 @@ lv_test_screenshot_result_t lv_test_screenshot_compare_core(const char * fn_ref)
     create_folders_if_needed(fn_ref_full);
 #endif
 
-    lv_draw_buf_t * draw_buf = lv_display_get_buf_active(lv_display_get_default());
+    lv_display_t * disp = lv_display_get_default();
+    lv_test_screenshot_read_cb_t read_cb = _state.screenshot_read_cb;
+    lv_draw_buf_t * draw_buf = lv_display_get_buf_active(disp);
+    uint32_t w = read_cb ? (uint32_t)lv_display_get_horizontal_resolution(disp) : draw_buf->header.w;
+    uint32_t h = read_cb ? (uint32_t)lv_display_get_vertical_resolution(disp) : draw_buf->header.h;
 
-    uint8_t * screen_buf_xrgb8888 = lv_malloc(draw_buf->header.w * draw_buf->header.h * 4);
+    uint8_t * screen_buf_xrgb8888 = lv_malloc(w * h * 4);
     if(!screen_buf_xrgb8888) {
         LV_LOG_ERROR("Not enough memory to compare display with screenshot");
         return LV_TEST_SCREENSHOT_RESULT_FAILED;
     }
 
-    buf_to_xrgb8888(draw_buf, screen_buf_xrgb8888);
+    if(read_cb) {
+        if(!read_cb(disp, screen_buf_xrgb8888, w * 4)) {
+            LV_LOG_ERROR("Could not read the displayed frame");
+            lv_free(screen_buf_xrgb8888);
+            return LV_TEST_SCREENSHOT_RESULT_FAILED;
+        }
+    }
+    else {
+        buf_to_xrgb8888(draw_buf, screen_buf_xrgb8888);
+    }
+
+#ifdef LV_TEST_SCREENSHOT_OUTPUT_PATH
+    char fn_out_full[256];
+    lv_snprintf(fn_out_full, sizeof(fn_out_full), "%s%s", LV_TEST_SCREENSHOT_OUTPUT_PATH, fn_ref);
+    create_folders_if_needed(fn_out_full);
+    write_png_file(screen_buf_xrgb8888, w, h, fn_out_full);
+    /* Lets a report attribute the screenshot to the test case, whose result
+     * Unity prints after it on the same stream */
+    printf("Screenshot: %s\n", fn_ref);
+#endif
 
     lv_draw_buf_t * ref_draw_buf = NULL;
     unsigned ref_img_width = 0;
@@ -116,7 +162,7 @@ lv_test_screenshot_result_t lv_test_screenshot_compare_core(const char * fn_ref)
         lv_test_screenshot_result_t comp_res;
 #if LV_TEST_SCREENSHOT_CREATE_REFERENCE_IMAGE
         LV_LOG_WARN("%s%s", fn_ref_full, " was not found, creating it now from the rendered screen");
-        write_png_file(screen_buf_xrgb8888, draw_buf->header.w, draw_buf->header.h, fn_ref_full);
+        write_png_file(screen_buf_xrgb8888, w, h, fn_ref_full);
         comp_res = LV_TEST_SCREENSHOT_RESULT_PASSED;
 #else
         comp_res = LV_TEST_SCREENSHOT_RESULT_NO_REFERENCE_IMAGE;
@@ -126,7 +172,7 @@ lv_test_screenshot_result_t lv_test_screenshot_compare_core(const char * fn_ref)
         return comp_res;
     }
 
-    if(ref_img_width != draw_buf->header.w || ref_img_height != draw_buf->header.h) {
+    if(ref_img_width != w || ref_img_height != h) {
         LV_LOG_WARN("The dimensions of the rendered and the %s reference image don't match", fn_ref);
         lv_free(screen_buf_xrgb8888);
         if(ref_draw_buf) lv_draw_buf_destroy(ref_draw_buf);
@@ -137,7 +183,7 @@ lv_test_screenshot_result_t lv_test_screenshot_compare_core(const char * fn_ref)
     unsigned x, y;
     bool err = false;
     for(y = 0; y < ref_img_height; y++) {
-        uint8_t * screen_buf_tmp = screen_buf_xrgb8888 + draw_buf->header.w * 4 * y;
+        uint8_t * screen_buf_tmp = screen_buf_xrgb8888 + w * 4 * y;
         uint8_t * ref_row = (uint8_t *)ref_draw_buf->data + y * ref_draw_buf->header.stride;
         for(x = 0; x < ref_img_width; x++) {
             uint8_t * ptr_ref = &(ref_row[x * 4]);
@@ -173,7 +219,7 @@ lv_test_screenshot_result_t lv_test_screenshot_compare_core(const char * fn_ref)
         char fn_err_full[256];
         lv_snprintf(fn_err_full, sizeof(fn_err_full), "%s%s_err.png", REF_IMGS_PATH, fn_ref_no_ext);
 
-        write_png_file(screen_buf_xrgb8888, draw_buf->header.w, draw_buf->header.h, fn_err_full);
+        write_png_file(screen_buf_xrgb8888, w, h, fn_err_full);
     }
 
     fflush(stdout);
@@ -332,6 +378,7 @@ static void create_folders_if_needed(const char * path)
 
     char * token = strtok_r(path_copy, "/", &ptr);
     char current_path[1024] = {'\0'}; /* Adjust the size as needed */
+    if(path[0] == '/') lv_strcat(current_path, "/");
 
     while(token && ptr && *ptr != '\0') {
         lv_strcat(current_path, token);

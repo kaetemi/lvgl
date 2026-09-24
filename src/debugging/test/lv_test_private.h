@@ -40,6 +40,9 @@ typedef struct {
     bool key_pressed;
     bool enc_pressed;
 
+    /** Reads the displayed frame for screenshots, NULL to use the active draw buffer */
+    bool (*screenshot_read_cb)(lv_display_t * disp, uint8_t * buf, uint32_t stride);
+
 #if LV_USE_GESTURE_RECOGNITION
     lv_indev_t * gesture_indev;
     lv_indev_touch_data_t * touch_data;

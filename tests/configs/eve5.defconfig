@@ -1,0 +1,6 @@
+# Render through the EVE5 draw unit and display driver on the EVE HAL. The HAL
+# is not part of LVGL: the project that builds the tests links it, see the
+# EVE5 section of tests/README.md.
+
+CONFIG_LV_USE_EVE5=y
+CONFIG_LV_USE_DRAW_EVE5=y

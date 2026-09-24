@@ -48,6 +48,9 @@ void test_image_recolor_xrgb8888_preserves_opaque_x_byte(void)
     lv_refr_now(NULL);
 
     lv_draw_buf_t * buf = lv_display_get_buf_active(disp);
+    if(buf->data == NULL) {
+        TEST_IGNORE_MESSAGE("the display is not rendered in CPU memory");
+    }
     int32_t w = buf->header.w;
     int32_t h = buf->header.h;
     uint32_t stride = buf->header.stride;

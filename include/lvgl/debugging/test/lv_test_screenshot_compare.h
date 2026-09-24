@@ -48,9 +48,34 @@ typedef enum {
 
 } lv_test_screenshot_result_t;
 
+/**
+ * Reads the frame shown on a display, for displays whose frame is not in their active
+ * draw buffer, such as a display rendered by an external GPU.
+ * @param disp      the display
+ * @param buf       destination for the display resolution, 4 bytes per pixel: R, G, B, A
+ * @param stride    bytes per row in `buf`
+ * @return          true on success
+ */
+typedef bool (*lv_test_screenshot_read_cb_t)(lv_display_t * disp, uint8_t * buf, uint32_t stride);
+
 /**********************
  * GLOBAL PROTOTYPES
  **********************/
+
+/**
+ * Set how screenshots read the displayed frame. By default they read the active draw buffer
+ * of the default display, which holds the whole frame on `lv_test_display_create()`'s display.
+ * @param read_cb   function that reads the displayed frame, or NULL to read the active draw buffer
+ */
+void lv_test_screenshot_set_read_cb(lv_test_screenshot_read_cb_t read_cb);
+
+/**
+ * Read the frame shown on the default display, the way screenshots read it, without
+ * redrawing it first.
+ * @param buf   destination for the display resolution, 4 bytes per pixel: R, G, B, A
+ * @return      true on success
+ */
+bool lv_test_screenshot_read(uint8_t * buf);
 
 /**
  * Invalidate and redraw the current screen and compare its content with a reference PNG image
