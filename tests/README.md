@@ -128,7 +128,9 @@ project that provides it builds the tests: eve_apps does with
 - Screenshots read the frame back from the EVE with `lv_eve5_read_screen()`,
   registered through `lv_test_screenshot_set_read_cb()`, and compare it with
   `ref_imgs_eve5`. Tests that inspect the frame themselves can use
-  `lv_test_screenshot_read()`.
+  `lv_test_screenshot_read()`. `eve5.defconfig` turns off the creation of
+  missing reference images: a screenshot without one passes, and the EVE5
+  goldens are only updated on purpose.
 - With `LV_TEST_SCREENSHOT_OUTPUT_PATH` set in CMake, every screenshot is also
   written there, for comparing the EVE5 output with `ref_imgs` side by side.
 
