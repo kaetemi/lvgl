@@ -222,6 +222,16 @@ lv_test_screenshot_result_t lv_test_screenshot_compare_core(const char * fn_ref)
         write_png_file(screen_buf_xrgb8888, w, h, fn_err_full);
     }
 
+#ifdef LV_TEST_SCREENSHOT_OUTPUT_PATH
+    /* When the screenshots are collected for a report, which compares them
+     * itself, LV_TEST_SCREENSHOT_REPORT reports a difference instead of
+     * failing, so that the test goes on to take its other screenshots */
+    if(err && getenv("LV_TEST_SCREENSHOT_REPORT") != NULL) {
+        printf("Screenshot differs: %s\n", fn_ref);
+        err = false;
+    }
+#endif
+
     fflush(stdout);
     lv_free(screen_buf_xrgb8888);
     if(ref_draw_buf) lv_draw_buf_destroy(ref_draw_buf);
