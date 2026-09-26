@@ -88,11 +88,6 @@ void lv_test_eve5_close(void)
 
 static bool read_screen_cb(lv_display_t * disp, uint8_t * buf, uint32_t stride)
 {
-    if(lv_eve5_read_screen(disp, buf, stride)) return true;
-
-    /* In FULL mode both swapchain buffers hold the frame once it's presented twice */
-    lv_obj_invalidate(lv_display_get_screen_active(disp));
-    lv_refr_now(disp);
     return lv_eve5_read_screen(disp, buf, stride);
 }
 
