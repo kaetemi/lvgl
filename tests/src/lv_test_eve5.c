@@ -80,6 +80,14 @@ lv_display_t * lv_test_eve5_display_create(int32_t hor_res, int32_t ver_res)
 void lv_test_eve5_close(void)
 {
     if(!s_opened) return;
+    /* What the draw unit moved between CPU and EVE memory, for comparing
+     * configurations, such as with and without VRAM residency */
+    const lv_draw_eve5_stats_t * stats = lv_draw_eve5_get_stats();
+    printf("EVE5 stats: uploads=%" LV_PRIu32 " upload_bytes=%llu hw_decodes=%" LV_PRIu32
+           " downloads=%" LV_PRIu32 " download_bytes=%llu hashes=%" LV_PRIu32 " hash_bytes=%llu\n",
+           stats->uploads, (unsigned long long)stats->upload_bytes, stats->hw_decodes,
+           stats->downloads, (unsigned long long)stats->download_bytes,
+           stats->hashes, (unsigned long long)stats->hash_bytes);
     lv_draw_eve5_deinit();
     EVE_Hal_close(&s_host);
     EVE_Hal_release();
