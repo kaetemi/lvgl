@@ -182,6 +182,14 @@ else()
     set(REF_IMGS_PATH "ref_imgs/")
 endif()
 
+# A project that keeps the reference images of its renderer itself, as the
+# EVE5 ones are, gives their folder
+set(LV_TEST_REF_IMGS_PATH "" CACHE STRING
+    "Folder of the reference images, with a trailing slash, instead of the renderer's folder in tests/")
+if(LV_TEST_REF_IMGS_PATH)
+    set(REF_IMGS_PATH "${LV_TEST_REF_IMGS_PATH}")
+endif()
+
 # lv_test_screenshot_compare() is part of LVGL, so the reference image location
 # has to be given to the library, not to the test cases.
 target_compile_definitions(lvgl PUBLIC

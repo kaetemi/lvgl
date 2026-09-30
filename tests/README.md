@@ -127,6 +127,9 @@ project that provides it builds the tests: eve_apps does with
   `LV_TEST_EVE_CHIP`.
 - Screenshots read the frame back from the EVE with `lv_eve5_read_screen()`,
   registered through `lv_test_screenshot_set_read_cb()`, and compare it with
+  the EVE5 goldens. LVGL doesn't keep them: the project that builds the tests
+  gives their folder with `LV_TEST_REF_IMGS_PATH` in CMake (eve_apps keeps
+  them in `tests/lvgl_suite/ref_imgs_eve5`), else they are looked for in
   `ref_imgs_eve5`. Tests that inspect the frame themselves can use
   `lv_test_screenshot_read()`. `eve5.defconfig` turns off the creation of
   missing reference images: a screenshot without one passes, and the EVE5

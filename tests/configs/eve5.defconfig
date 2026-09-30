@@ -5,7 +5,8 @@
 CONFIG_LV_USE_EVE5=y
 CONFIG_LV_USE_DRAW_EVE5=y
 
-# The EVE5 goldens (ref_imgs_eve5) are written by lvgl_suite.py update-goldens
-# only, not by whichever configuration takes a new screenshot first. A missing
-# golden passes, and the report lists the screenshot as new.
+# The EVE5 goldens are kept and updated by the project that builds the tests
+# (eve_apps: lvgl_suite.py update-goldens), not by whichever configuration
+# takes a new screenshot first. A missing golden passes, and the report lists
+# the screenshot as new.
 # CONFIG_LV_TEST_SCREENSHOT_CREATE_REFERENCE_IMAGE is not set
