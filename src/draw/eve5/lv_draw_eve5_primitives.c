@@ -82,6 +82,23 @@ void lv_draw_eve5_draw_rect(lv_draw_eve5_unit_t * u, int32_t x1, int32_t y1, int
         return;
     }
 
+    /* VERTEX2F holds 15-bit coordinates, so an edge far outside the layer
+     * (of a content area a million pixels long, for instance) would wrap
+     * around. Pull such edges in to just outside the clip area, past both
+     * corners and their antialiasing even when the other edge is inside it,
+     * which leaves what the clip area shows as it was */
+    if(clip_area && layer_area) {
+        const int32_t far_edge = 4096;
+        int32_t margin = radius * 2 + 4;
+        if(x1 < -far_edge) x1 = clip_area->x1 - layer_area->x1 - margin;
+        if(y1 < -far_edge) y1 = clip_area->y1 - layer_area->y1 - margin;
+        if(x2 > far_edge) x2 = clip_area->x2 - layer_area->x1 + margin;
+        if(y2 > far_edge) y2 = clip_area->y2 - layer_area->y1 + margin;
+        w = x2 - x1;
+        h = y2 - y1;
+        if(w < 0 || h < 0) return;
+    }
+
     /* EVE quirk: RECTS rendering derives from the POINTS path, so
      * lineWidth < 16 (1px) causes the entire rect to fade out (become
      * transparent) rather than producing sharp corners. Use scissor
