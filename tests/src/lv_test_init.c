@@ -46,6 +46,13 @@ void lv_test_init(void)
 #endif
 }
 
+void lv_test_case_begin(void)
+{
+#if LV_USE_EVE5
+    lv_test_eve5_case_begin();
+#endif
+}
+
 void lv_test_deinit(void)
 {
 #if LV_USE_GESTURE_RECOGNITION

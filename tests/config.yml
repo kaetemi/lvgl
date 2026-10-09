@@ -2,4 +2,5 @@
   :includes:
     - lv_test_init.h
   :suite_setup: "lv_test_init();"
+  :before_test: "lv_test_case_begin();"
   :suite_teardown: "lv_test_deinit();return num_failures;"

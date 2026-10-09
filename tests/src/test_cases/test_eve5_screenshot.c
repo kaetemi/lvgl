@@ -5,6 +5,7 @@
 #include "unity/unity.h"
 #include "src/drivers/display/eve5/lv_eve5.h"
 #include "src/draw/eve5/lv_draw_eve5.h"
+#include "../lv_test_eve5.h"
 
 static lv_draw_buf_t * image;
 static uint8_t * frame;
@@ -183,6 +184,7 @@ void test_eve5_layer_refusals_count_only_unsupported_targets(void)
 {
     lv_display_t * disp = lv_display_get_default();
     lv_draw_eve5_reset_stats();
+    lv_test_eve5_case_begin();
     lv_obj_invalidate(lv_screen_active());
     lv_refr_now(disp);
     TEST_ASSERT_EQUAL_UINT32(0, lv_draw_eve5_get_stats()->layer_tasks_refused);
@@ -214,10 +216,42 @@ void test_eve5_layer_refusals_count_only_unsupported_targets(void)
     lv_refr_now(disp);
     TEST_ASSERT_EQUAL_UINT32(refused, lv_draw_eve5_get_stats()->layer_tasks_refused);
     lv_draw_eve5_reset_stats();
+    lv_test_eve5_case_begin();
     TEST_ASSERT_EQUAL_UINT32(0, lv_draw_eve5_get_stats()->layer_tasks_refused);
     lv_obj_invalidate(panel);
     lv_refr_now(disp);
     TEST_ASSERT_TRUE(lv_test_screenshot_read(frame));
     TEST_ASSERT_EQUAL_UINT32(0, lv_draw_eve5_get_stats()->layer_tasks_refused);
+}
+
+void test_eve5_layer_refusals_retain_offscreen_canvas_drawing(void)
+{
+    lv_display_t * disp = lv_display_get_default();
+    lv_draw_eve5_reset_stats();
+    lv_test_eve5_case_begin();
+    lv_obj_t * canvas = lv_canvas_create(lv_screen_active());
+    lv_canvas_set_draw_buf(canvas, image);
+    lv_layer_t layer;
+    lv_canvas_init_layer(canvas, &layer);
+    lv_draw_fill_dsc_t fill;
+    lv_draw_fill_dsc_init(&fill);
+    lv_area_t area = {0, 0, 31, 31};
+    lv_draw_fill(&layer, &fill, &area);
+    lv_canvas_finish_layer(canvas, &layer);
+    uint32_t refused = lv_draw_eve5_get_stats()->layer_tasks_refused;
+    TEST_ASSERT_EQUAL_UINT32(EVE_Hal_supportRenderTarget(lv_eve5_get_hal(disp)) ? 0 : 1, refused);
+
+    /* Rendering the canvas bitmap cannot re-issue its missing fill task.
+     * Its off-screen diagnostic must survive multiple screen refreshes. */
+    for(unsigned i = 0; i < 2; i++) {
+        lv_obj_invalidate(canvas);
+        lv_refr_now(disp);
+        TEST_ASSERT_TRUE(lv_test_screenshot_read(frame));
+        TEST_ASSERT_EQUAL_UINT32(refused, lv_draw_eve5_get_stats()->layer_tasks_refused);
+    }
+    lv_obj_delete(canvas);
+    lv_test_eve5_case_begin();
+    lv_refr_now(disp);
+    TEST_ASSERT_TRUE(lv_test_screenshot_read(frame));
 }
 #endif

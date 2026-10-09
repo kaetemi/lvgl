@@ -14,6 +14,7 @@ extern "C" {
 
 void lv_test_init(void);
 void lv_test_deinit(void);
+void lv_test_case_begin(void);
 
 #ifdef __cplusplus
 } /*extern "C"*/

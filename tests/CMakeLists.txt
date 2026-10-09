@@ -354,6 +354,7 @@ foreach(test_case_fname ${TEST_CASE_FILES})
                 ${generate_test_runner_config}
         DEPENDS ${generate_test_runner_rb} ${test_case_fname}
                 ${generate_test_runner_config}
+                ${LVGL_TEST_DIR}/unity/run_test.erb
     )
 
     add_executable(${test_name} ${test_case_fname} ${test_runner_fname})

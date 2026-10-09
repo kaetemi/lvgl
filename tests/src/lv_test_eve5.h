@@ -31,6 +31,9 @@ lv_display_t * lv_test_eve5_display_create(int32_t hor_res, int32_t ver_res);
  */
 void lv_test_eve5_close(void);
 
+/** Start a test case's off-screen drawing diagnostics without clearing the displayed frame's status. */
+void lv_test_eve5_case_begin(void);
+
 #endif /*LV_USE_EVE5*/
 
 #ifdef __cplusplus
