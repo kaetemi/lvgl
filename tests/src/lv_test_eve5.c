@@ -28,6 +28,7 @@ static bool read_screen_cb(lv_display_t * disp, uint8_t * buf, uint32_t stride);
 static void buf_track_install(void);
 static void buf_track_report(void);
 static void buf_track_refr_start_cb(lv_event_t * e);
+static void frame_start_cb(lv_event_t * e);
 
 lv_display_t * lv_test_eve5_display_create(int32_t hor_res, int32_t ver_res)
 {
@@ -85,6 +86,7 @@ lv_display_t * lv_test_eve5_display_create(int32_t hor_res, int32_t ver_res)
 
     lv_test_screenshot_set_read_cb(read_screen_cb);
     lv_display_add_event_cb(disp, buf_track_refr_start_cb, LV_EVENT_REFR_START, NULL);
+    lv_display_add_event_cb(disp, frame_start_cb, LV_EVENT_RENDER_START, NULL);
     return disp;
 }
 
@@ -299,6 +301,14 @@ static void buf_track_report(void)
 #if LV_USE_OS
     lv_mutex_delete(&s_buf_track.mutex);
 #endif
+}
+
+static void frame_start_cb(lv_event_t * e)
+{
+    LV_UNUSED(e);
+    /* Empty refreshes keep the displayed frame and its diagnosis. Mark only
+     * actual rendering starts so reports can scope overflow logs to captures. */
+    printf("EVE5 frame: begin\n");
 }
 
 static bool read_screen_cb(lv_display_t * disp, uint8_t * buf, uint32_t stride)

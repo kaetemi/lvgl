@@ -221,16 +221,43 @@ int lv_draw_eve5_render_tasks(lv_draw_eve5_unit_t * u, lv_layer_t * layer, bool 
         uint32_t rgb = deferred_mask ? 0 : bound.rgb;
         uint32_t after = deferred_mask ? bound.rgb : (budget->alpha_pass ? bound.alpha : 0);
         if(phost->DlEntries + rgb + budget->reserve + after > dl_budget) {
-            if(budget->can_split && rendered_count > 0) {
+            if(!EVE_Hal_supportRenderTarget(phost)) {
+                /* Coprocessor commands contribute worst-case expansions to
+                 * DlEntries. On NORT there is no intermediate target to split
+                 * into: drain the commands and reclaim that pessimism before
+                 * deciding whether to discard the remainder of this frame. */
+                if(!EVE_Cmd_waitFlush(phost)) {
+                    budget->stop = t;
+                    break;
+                }
+                uint32_t actual = EVE_Hal_rd32(phost, REG_CMD_DL) / 4;
+                LV_LOG_INFO("EVE5: display list readback: %" LV_PRIu32 " predicted, %" LV_PRIu32 " actual",
+                            phost->DlEntries, actual);
+#if EVE5_DL_STATS
+                LV_LOG_USER("DLSTAT NORT readback %" LV_PRIu32 " predicted %" LV_PRIu32 "%s",
+                            actual, phost->DlEntries, actual > phost->DlEntries ? " OVER" : "");
+#endif
+                phost->DlEntries = actual;
+                if(phost->DlEntries + rgb + budget->reserve + after > dl_budget) {
+                    LV_LOG_WARN("EVE5: display list overflow prevented (%" LV_PRIu32 " + %" LV_PRIu32 " + %" LV_PRIu32
+                                " > %" LV_PRIu32 "); skipping remaining tasks",
+                                phost->DlEntries, rgb, budget->reserve + after, dl_budget);
+                    budget->stop = t;
+                    break;
+                }
+            }
+            else if(budget->can_split && rendered_count > 0) {
                 EVE5_LOG("EVE5: Display list budget: slice ends before task %p (%" LV_PRIu32 " written)",
                          (void *)t, phost->DlEntries);
                 budget->stop = t;
                 break;
             }
-            /* The bound is pessimistic, so the task will most likely still fit */
-            LV_LOG_INFO("EVE5: %s task may overflow the display list (%" LV_PRIu32 " + %" LV_PRIu32 " + %" LV_PRIu32
-                        " > %" LV_PRIu32 ")", rendered_count ? "Unsplittable" : "Single",
-                        phost->DlEntries, rgb, budget->reserve + after, dl_budget);
+            else {
+                /* The bound is pessimistic, so the task will most likely still fit */
+                LV_LOG_INFO("EVE5: %s task may overflow the display list (%" LV_PRIu32 " + %" LV_PRIu32 " + %" LV_PRIu32
+                            " > %" LV_PRIu32 ")", rendered_count ? "Unsplittable" : "Single",
+                            phost->DlEntries, rgb, budget->reserve + after, dl_budget);
+            }
         }
         budget->reserve += after;
 

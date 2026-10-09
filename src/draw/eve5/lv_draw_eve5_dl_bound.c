@@ -63,7 +63,7 @@ uint32_t lv_draw_eve5_dl_budget(EVE_HalContext * phost)
 {
     LV_UNUSED(phost); /* EVE_DL_COUNT only reads it in multi-target builds */
     uint32_t count = EVE5_DL_BUDGET_TEST ? EVE5_DL_BUDGET_TEST : EVE_DL_COUNT;
-    return count - EVE5_DL_MARGIN;
+    return EVE_Hal_supportRenderTarget(phost) ? count - EVE5_DL_MARGIN : count;
 }
 
 /* Tile stamps of an image task: non-power-of-two tiled sources are drawn by

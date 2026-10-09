@@ -1748,15 +1748,23 @@ static void eve5_render_layer_nort(lv_draw_eve5_unit_t * u, lv_layer_t * layer)
     lv_draw_eve5_slice_t slice;
     lv_memzero(&slice, sizeof(slice));
     slice.prev_handle = GA_HANDLE_INVALID;
-    /* Without render targets the frame cannot be split; tasks that may not
-     * fit the display list are only reported */
+    /* Without render targets the frame cannot be split. Reserve both our
+     * DISPLAY and the coprocessor's possible terminating DISPLAY. */
     lv_draw_eve5_budget_t budget;
-    budget.reserve = EVE5_DL_FINISH_LAYER;
+    budget.reserve = EVE5_DL_FINISH_NORT;
     budget.alpha_pass = false;
     budget.can_split = false;
     budget.stop = NULL;
     int rendered_count = lv_draw_eve5_render_tasks(u, layer, /*is_screen=*/true,
                                                    /*finish_tasks=*/true, &slice, &budget);
+
+    /* Dropped tasks must leave the dispatch queue too. Retrying them would
+     * start another full-screen list and erase the prefix we could fit. */
+    for(lv_draw_task_t * t = budget.stop; t != NULL; t = t->next) {
+        if(t->preferred_draw_unit_id == DRAW_UNIT_ID_EVE5 && t->state == LV_DRAW_TASK_STATE_QUEUED) {
+            t->state = LV_DRAW_TASK_STATE_FINISHED;
+        }
+    }
 
     EVE_CoDl_display(phost);
     EVE_CoCmd_swap(phost);
@@ -1790,6 +1798,12 @@ static void eve5_render_layer_nort(lv_draw_eve5_unit_t * u, lv_layer_t * layer)
      * Distinct from EVE_GpuAlloc_UpdateFree (sync-based deferred queue, GA5).
      * No-op on BT820 — GA5 has no frame-based GC and we don't take this path. */
     EVE_Cmd_waitFlush(phost);
+#if EVE5_DL_STATS
+    uint32_t dl_entries = EVE_Hal_rd32(phost, REG_CMD_DL) / 4;
+    uint32_t dl_budget = lv_draw_eve5_dl_budget(phost);
+    LV_LOG_USER("DLSTAT NORT frame %" LV_PRIu32 " budget %" LV_PRIu32 "%s",
+                dl_entries, dl_budget, dl_entries > dl_budget ? " OVER" : "");
+#endif
     bool gc_freed_any = EVE_GpuAlloc_Update(u->allocator);
 
     /* Frame had alloc failures + GC just freed something → pending content

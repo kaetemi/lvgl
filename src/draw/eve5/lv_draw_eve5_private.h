@@ -499,13 +499,15 @@ typedef enum {
 /* Worst-case entries of the per-layer steps around the tasks */
 #define EVE5_DL_INIT_LAYER      45  /**< lv_draw_eve5_hal_init_layer */
 #define EVE5_DL_FINISH_LAYER    1   /**< lv_draw_eve5_hal_finish_layer (DISPLAY) */
+#define EVE5_DL_FINISH_NORT     2   /**< Explicit DISPLAY plus a coprocessor DISPLAY */
 #define EVE5_DL_INIT_L8         28  /**< lv_draw_eve5_hal_init_l8_rendertarget */
 #define EVE5_DL_FINISH_L8       1   /**< lv_draw_eve5_hal_finish_l8_rendertarget */
 #define EVE5_DL_BLIT_L8         25  /**< lv_draw_eve5_hal_blit_l8_to_alpha */
 #define EVE5_DL_ALPHA_PASS      48  /**< lv_draw_eve5_alpha_pass, excluding its tasks */
 #define EVE5_DL_BITMAP_MASK     30  /**< lv_draw_eve5_apply_bitmap_mask */
 
-/* Entries kept free as a guard */
+/* Extra entries kept free for render-target passes. NORT uses its explicit
+ * two-DISPLAY reserve and reads back the actual position when near capacity. */
 #define EVE5_DL_MARGIN          8
 
 /* Test mode: a small display list budget, to split layers into many slices */
