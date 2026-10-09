@@ -166,5 +166,15 @@ void test_eve5_allocator_retry_stops_when_gc_cannot_make_progress(void)
     TEST_ASSERT_FALSE(lv_eve5_has_pending_refresh(disp));
     TEST_ASSERT_EQUAL_UINT(2, renders);
     TEST_ASSERT_EQUAL_UINT32(1, EVE_GpuAlloc_GetAllocFailedCount(ga));
+
+    /* An application update starts a new retry sequence even if the old
+     * scene's recovery invalidation has not rendered yet. */
+    lv_obj_invalidate(lv_screen_active());
+    lv_refr_now(disp);
+    TEST_ASSERT_TRUE(lv_eve5_has_pending_refresh(disp));
+    lv_obj_invalidate(lv_screen_active());
+    TEST_ASSERT_TRUE(lv_test_screenshot_read(frame));
+    TEST_ASSERT_FALSE(lv_eve5_has_pending_refresh(disp));
+    TEST_ASSERT_EQUAL_UINT(5, renders);
 }
 #endif

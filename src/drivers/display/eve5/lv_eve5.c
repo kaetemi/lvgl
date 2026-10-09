@@ -85,6 +85,7 @@ typedef struct {
     bool redraw_pending;
     /* Require progress across automatic allocator retries of the same scene. */
     uint32_t alloc_retry_failures;
+    bool recovery_invalidate;
     lv_eve5_render_mode_t render_mode;
     /* Optional hook the draw unit registers via
      * lv_eve5_set_coprocessor_reset_handler so its bitmap-handle pool +
@@ -124,6 +125,7 @@ static void flush_cb(lv_display_t * disp, const lv_area_t * area, uint8_t * px_m
 static void wait_cb(lv_display_t * disp);
 static void invalidate_area_cb(lv_event_t * e);
 static void render_start_cb(lv_event_t * e);
+static void refr_request_cb(lv_event_t * e);
 static void refr_ready_cb(lv_event_t * e);
 static void delete_event_cb(lv_event_t * e);
 #ifdef EVE_SUPPORT_RENDERTARGET
@@ -219,6 +221,7 @@ lv_display_t * lv_eve5_create_ex(EVE_HalContext *hal, EVE_GpuAlloc *allocator,
 
     /* Drain deferred-invalidate requests from the draw unit after each refresh */
     lv_display_add_event_cb(disp, render_start_cb, LV_EVENT_RENDER_START, NULL);
+    lv_display_add_event_cb(disp, refr_request_cb, LV_EVENT_REFR_REQUEST, NULL);
     lv_display_add_event_cb(disp, refr_ready_cb, LV_EVENT_REFR_READY, NULL);
 
     lv_display_add_event_cb(disp, delete_event_cb, LV_EVENT_DELETE, NULL);
@@ -957,6 +960,15 @@ static void invalidate_area_cb(lv_event_t * e)
     area->y2 = LV_MIN(area->y2 + 1, lv_display_get_vertical_resolution(disp) - 1);
 }
 
+static void refr_request_cb(lv_event_t * e)
+{
+    lv_eve5_driver_t * drvr = lv_display_get_driver_data(lv_event_get_target(e));
+    /* An ordinary update may arrive while a recovery redraw is pending.
+     * Give the new scene its own retry sequence; only our own invalidation
+     * carries the previous frame's progress requirement forward. */
+    if(!drvr->recovery_invalidate) drvr->alloc_retry_failures = UINT32_MAX;
+}
+
 static void render_start_cb(lv_event_t * e)
 {
     lv_display_t * disp = lv_event_get_target(e);
@@ -988,7 +1000,9 @@ static void refr_ready_cb(lv_event_t * e)
     if(scr != NULL) {
         LV_LOG_INFO("EVE5: deferred screen invalidate (post-GC retry)");
         drvr->redraw_pending = true;
+        drvr->recovery_invalidate = true;
         lv_obj_invalidate(scr);
+        drvr->recovery_invalidate = false;
     }
 }
 
