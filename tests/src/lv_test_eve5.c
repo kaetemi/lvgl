@@ -26,6 +26,10 @@ static uint32_t s_frame_layer_tasks_refused;
 static uint32_t s_frame_layer_refusals;
 static uint32_t s_last_render_layer_tasks_refused;
 static uint32_t s_offscreen_layer_refusals;
+static uint32_t s_frame_layer_fallbacks_before;
+static uint32_t s_frame_layer_fallbacks;
+static uint32_t s_last_render_layer_fallbacks;
+static uint32_t s_offscreen_layer_fallbacks;
 static uint32_t s_degraded_before[2];
 static uint32_t s_degraded_frame[2];
 
@@ -105,6 +109,8 @@ void lv_test_eve5_case_begin(void)
      * off-screen drawing to the next one. The displayed frame is unchanged. */
     s_last_render_layer_tasks_refused = lv_draw_eve5_get_stats()->layer_tasks_refused;
     s_offscreen_layer_refusals = 0;
+    s_last_render_layer_fallbacks = lv_draw_get_layer_fallback_count(NULL);
+    s_offscreen_layer_fallbacks = 0;
 }
 
 void lv_test_eve5_close(void)
@@ -324,13 +330,16 @@ static void buf_track_report(void)
 
 static void frame_start_cb(lv_event_t * e)
 {
-    LV_UNUSED(e);
     /* Empty refreshes keep the displayed frame and its diagnosis. Mark only
      * actual rendering starts so reports can scope overflow logs to captures. */
     uint32_t refused = lv_draw_eve5_get_stats()->layer_tasks_refused;
     s_offscreen_layer_refusals += refused - s_last_render_layer_tasks_refused;
     s_frame_layer_tasks_refused = refused;
     s_frame_layer_refusals = 0;
+    uint32_t fallbacks = lv_draw_get_layer_fallback_count(lv_event_get_target(e));
+    s_offscreen_layer_fallbacks += fallbacks - s_last_render_layer_fallbacks;
+    s_frame_layer_fallbacks_before = fallbacks;
+    s_frame_layer_fallbacks = 0;
     for(unsigned i = 0; i < 2; i++) {
         s_degraded_before[i] = lv_draw_eve5_get_stats()->degraded_tasks[i];
         s_degraded_frame[i] = 0;
@@ -340,10 +349,12 @@ static void frame_start_cb(lv_event_t * e)
 
 static void frame_ready_cb(lv_event_t * e)
 {
-    LV_UNUSED(e);
     uint32_t refused = lv_draw_eve5_get_stats()->layer_tasks_refused;
     s_frame_layer_refusals = refused - s_frame_layer_tasks_refused;
     s_last_render_layer_tasks_refused = refused;
+    uint32_t fallbacks = lv_draw_get_layer_fallback_count(lv_event_get_target(e));
+    s_frame_layer_fallbacks = fallbacks - s_frame_layer_fallbacks_before;
+    s_last_render_layer_fallbacks = fallbacks;
     for(unsigned i = 0; i < 2; i++) {
         s_degraded_frame[i] = lv_draw_eve5_get_stats()->degraded_tasks[i] - s_degraded_before[i];
     }
@@ -382,9 +393,12 @@ static bool read_screen_cb(lv_display_t * disp, uint8_t * buf, uint32_t stride)
                (unsigned)EVE_GpuAlloc_GetAllocFailedCount(lv_eve5_get_allocator(disp)));
         /* Keep lifetime transfer totals intact. Recovery redraws replace this
          * baseline, while empty refreshes and repeated captures preserve it. */
-        printf("EVE5 capture: layer_tasks_refused=%" LV_PRIu32 " offscreen_layer_tasks_refused=%" LV_PRIu32 "\n",
+        printf("EVE5 capture: layer_tasks_refused=%" LV_PRIu32 " offscreen_layer_tasks_refused=%" LV_PRIu32
+               " layer_effects_skipped=%" LV_PRIu32 " offscreen_layer_effects_skipped=%" LV_PRIu32 "\n",
                s_frame_layer_refusals, s_offscreen_layer_refusals +
-               lv_draw_eve5_get_stats()->layer_tasks_refused - s_last_render_layer_tasks_refused);
+               lv_draw_eve5_get_stats()->layer_tasks_refused - s_last_render_layer_tasks_refused,
+               s_frame_layer_fallbacks, s_offscreen_layer_fallbacks +
+               lv_draw_get_layer_fallback_count(disp) - s_last_render_layer_fallbacks);
     }
     return ok;
 }

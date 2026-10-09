@@ -247,6 +247,7 @@ void lv_draw_eve5_init(EVE_HalContext *hal, EVE_GpuAlloc *allocator)
 #endif
     }
 
+    lv_draw_invalidate_layer_support();
     LV_LOG_INFO("EVE5: Draw unit initialized, ID=%d", DRAW_UNIT_ID_EVE5);
     LV_LOG_INFO("EVE5: SW fallback config: FILL=%d BORDER=%d LINE=%d TRI=%d LABEL=%d ARC=%d SHADOW=%d CANVAS=%d VECTOR=%d",
                 LV_DRAW_EVE5_SW_FILL, LV_DRAW_EVE5_SW_BORDER, LV_DRAW_EVE5_SW_LINE,
@@ -278,6 +279,7 @@ void lv_draw_eve5_set_enabled(bool enabled)
 {
     LV_LOG_WARN("EVE5: set_enabled %d -> %d", (int)s_eve5_enabled, (int)enabled);
     s_eve5_enabled = enabled;
+    lv_draw_invalidate_layer_support();
 }
 
 bool lv_draw_eve5_get_enabled(void)
@@ -313,7 +315,7 @@ static int32_t evaluate(lv_draw_unit_t * draw_unit, lv_draw_task_t * task)
 
     /* Skip tasks marked for SW fallback (re-issued with user_data set) */
     if(((lv_draw_dsc_base_t *)task->draw_dsc)->user_data != NULL) {
-        EVE5_LOG("EVE5: Evaluate: type=%s -> SW fallback", task_type_str(task->type));
+        if(!task->is_probe) EVE5_LOG("EVE5: Evaluate: type=%s -> SW fallback", task_type_str(task->type));
         return 0;
     }
 
@@ -324,7 +326,7 @@ static int32_t evaluate(lv_draw_unit_t * draw_unit, lv_draw_task_t * task)
         lv_draw_eve5_unit_t * u = (lv_draw_eve5_unit_t *)draw_unit;
         lv_display_t * disp = lv_eve5_disp_from_hal(u->hal);
         if(!eve5_is_screen_layer(disp, target)) {
-            EVE5_LOG("EVE5: Evaluate: type=%s -> declined (canvas layer)", task_type_str(task->type));
+            if(!task->is_probe) EVE5_LOG("EVE5: Evaluate: type=%s -> declined (canvas layer)", task_type_str(task->type));
             return 0;
         }
     }
@@ -335,7 +337,7 @@ static int32_t evaluate(lv_draw_unit_t * draw_unit, lv_draw_task_t * task)
 #if !LV_USE_DRAW_VRAM
     if(task->target_layer != NULL
        && !eve5_renders_for(lv_eve5_disp_from_hal(((lv_draw_eve5_unit_t *)draw_unit)->hal), task->target_layer)) {
-        EVE5_LOG("EVE5: Evaluate: type=%s -> declined (another display)", task_type_str(task->type));
+        if(!task->is_probe) EVE5_LOG("EVE5: Evaluate: type=%s -> declined (another display)", task_type_str(task->type));
         return 0;
     }
 #endif
@@ -343,7 +345,7 @@ static int32_t evaluate(lv_draw_unit_t * draw_unit, lv_draw_task_t * task)
     task->preference_score = 10;
     task->preferred_draw_unit_id = DRAW_UNIT_ID_EVE5;
 
-    EVE5_LOG("EVE5: Evaluate: type=%s -> claimed", task_type_str(task->type));
+    if(!task->is_probe) EVE5_LOG("EVE5: Evaluate: type=%s -> claimed", task_type_str(task->type));
 
     return 0;
 }
@@ -1589,7 +1591,7 @@ static int32_t evaluate_nort(lv_draw_unit_t * draw_unit, lv_draw_task_t * task)
 
     /* Skip tasks marked for SW fallback (re-issued with user_data set) */
     if(((lv_draw_dsc_base_t *)task->draw_dsc)->user_data != NULL) {
-        EVE5_LOG("EVE5 NORT: Evaluate: type=%s -> SW fallback", task_type_str(task->type));
+        if(!task->is_probe) EVE5_LOG("EVE5 NORT: Evaluate: type=%s -> SW fallback", task_type_str(task->type));
         return 0;
     }
 
@@ -1601,15 +1603,17 @@ static int32_t evaluate_nort(lv_draw_unit_t * draw_unit, lv_draw_task_t * task)
     lv_draw_eve5_unit_t * u = (lv_draw_eve5_unit_t *)draw_unit;
     lv_display_t * disp = lv_eve5_disp_from_hal(u->hal);
     if(!eve5_is_screen_layer(disp, target)) {
-        lv_draw_eve5_stats.layer_tasks_refused++;
-        EVE5_LOG("EVE5 NORT: Evaluate: type=%s -> declined (not screen layer)", task_type_str(task->type));
+        if(!task->is_probe) {
+            lv_draw_eve5_stats.layer_tasks_refused++;
+            EVE5_LOG("EVE5 NORT: Evaluate: type=%s -> declined (not screen layer)", task_type_str(task->type));
+        }
         return 0;
     }
 
     task->preference_score = 10;
     task->preferred_draw_unit_id = DRAW_UNIT_ID_EVE5;
 
-    EVE5_LOG("EVE5 NORT: Evaluate: type=%s -> claimed", task_type_str(task->type));
+    if(!task->is_probe) EVE5_LOG("EVE5 NORT: Evaluate: type=%s -> claimed", task_type_str(task->type));
     return 0;
 }
 

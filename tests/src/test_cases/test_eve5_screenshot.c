@@ -189,6 +189,7 @@ void test_eve5_layer_refusals_count_only_unsupported_targets(void)
     lv_refr_now(disp);
     TEST_ASSERT_EQUAL_UINT32(0, lv_draw_eve5_get_stats()->layer_tasks_refused);
 
+    uint32_t fallbacks_before = lv_draw_get_layer_fallback_count(disp);
     lv_obj_t * panel = lv_obj_create(lv_screen_active());
     lv_obj_remove_style_all(panel);
     lv_obj_set_size(panel, 100, 60);
@@ -198,12 +199,15 @@ void test_eve5_layer_refusals_count_only_unsupported_targets(void)
     lv_label_set_text(label, "Layer\nclipping\nexample");
     lv_refr_now(disp);
     uint32_t refused = lv_draw_eve5_get_stats()->layer_tasks_refused;
-    if(EVE_Hal_supportRenderTarget(lv_eve5_get_hal(disp))) {
+    if(EVE_Hal_supportRenderTarget(lv_eve5_get_hal(disp)) || !lv_draw_layer_supported(disp)) {
         TEST_ASSERT_EQUAL_UINT32(0, refused);
     }
     else {
         TEST_ASSERT_GREATER_THAN_UINT32(0, refused);
     }
+    uint32_t fallbacks = lv_draw_get_layer_fallback_count(disp);
+    if(lv_draw_layer_supported(disp)) TEST_ASSERT_EQUAL_UINT32(fallbacks_before, fallbacks);
+    else TEST_ASSERT_GREATER_THAN_UINT32(fallbacks_before, fallbacks);
 
     /* Empty refreshes and repeated captures must retain the displayed frame's
      * count without introducing more refusals. */
@@ -211,10 +215,12 @@ void test_eve5_layer_refusals_count_only_unsupported_targets(void)
     TEST_ASSERT_TRUE(lv_test_screenshot_read(frame));
     TEST_ASSERT_TRUE(lv_test_screenshot_read(frame));
     TEST_ASSERT_EQUAL_UINT32(refused, lv_draw_eve5_get_stats()->layer_tasks_refused);
+    TEST_ASSERT_EQUAL_UINT32(fallbacks, lv_draw_get_layer_fallback_count(disp));
 
     lv_obj_set_style_clip_corner(panel, false, 0);
     lv_refr_now(disp);
     TEST_ASSERT_EQUAL_UINT32(refused, lv_draw_eve5_get_stats()->layer_tasks_refused);
+    TEST_ASSERT_EQUAL_UINT32(fallbacks, lv_draw_get_layer_fallback_count(disp));
     lv_draw_eve5_reset_stats();
     lv_test_eve5_case_begin();
     TEST_ASSERT_EQUAL_UINT32(0, lv_draw_eve5_get_stats()->layer_tasks_refused);
