@@ -7,6 +7,8 @@
 
 static lv_draw_eve5_unit_t * unit;
 static lv_font_t * rom_font;
+static lv_font_t * image_font;
+static lv_font_t * loaded_font;
 static lv_layer_t layer;
 static lv_draw_task_t task;
 static lv_draw_label_dsc_t label;
@@ -38,6 +40,8 @@ void setUp(void)
     lv_draw_eve5_handle_pool_init(unit);
     lv_draw_eve5_rom_font_init(unit);
     rom_font = NULL;
+    image_font = NULL;
+    loaded_font = NULL;
     lv_memzero(&layer, sizeof(layer));
     layer.buf_area = (lv_area_t) {0, 0, 799, 479};
     lv_memzero(&task, sizeof(task));
@@ -62,8 +66,10 @@ void tearDown(void)
     /* No test list is submitted to scanout. Retire it before freeing fonts. */
     lv_draw_eve5_dl_start(unit);
     TEST_ASSERT_TRUE(EVE_Cmd_waitFlush(unit->hal));
-    lv_draw_eve5_font_free_all(unit);
+    lv_draw_eve5_res_deinit(unit);
     lv_eve5_rom_font_destroy(rom_font);
+    if(image_font) lv_imgfont_destroy(image_font);
+    lv_binfont_destroy(loaded_font);
     lv_free(unit);
 }
 
@@ -209,5 +215,87 @@ void test_label_bound_refines_only_when_needed_without_loading_bitmaps(void)
     TEST_ASSERT_TRUE(lv_draw_eve5_range_fits_dl(unit, &task, NULL, 0));
     TEST_ASSERT_GREATER_THAN_UINT(cheap_calls, metric_calls);
     TEST_ASSERT_EQUAL_UINT(0, bitmap_calls);
+}
+
+void test_compressed_label_fits_after_existing_display_list(void)
+{
+    LV_FONT_DECLARE(test_font_montserrat_ascii_3bpp_compressed);
+    label.font = &test_font_montserrat_ascii_3bpp_compressed;
+    label.text = "3bpp compressed font: the quick brown fox jumps over the lazy dog";
+    label.line_space = 0;
+    task.area = (lv_area_t) {55, 402, 743, 423};
+    task.clip_area = (lv_area_t) {50, 397, 748, 423};
+    uint32_t bound = lv_draw_eve5_label_dl_bound(&task, false);
+    TEST_ASSERT_LESS_THAN_UINT32(1024, bound);
+    TEST_ASSERT_EQUAL_UINT32(bound, lv_draw_eve5_label_dl_bound(&task, true));
+    assert_render_bound();
+    label.rotation = 450;
+    assert_render_bound();
+    label.rotation = 0;
+
+    /* Reproduce the space left before label_color's final row. Fill with raw
+     * color words so optimizer deduplication cannot remove the prefix. */
+    EVE_HalContext * phost = unit->hal;
+    lv_draw_eve5_dl_start(unit);
+    for(unsigned i = 0; i < 705; i++) EVE_CoCmd_dl(phost, COLOR_RGB(255, 255, 255));
+    lv_draw_eve5_slice_t slice = {0};
+    lv_draw_eve5_budget_t budget = {0};
+    budget.reserve = EVE5_DL_FINISH_NORT;
+    budget.can_split = true;
+    TEST_ASSERT_EQUAL_INT(1, lv_draw_eve5_render_tasks(unit, &layer, true, true, &slice, &budget));
+    TEST_ASSERT_NULL(budget.stop);
+    TEST_ASSERT_EQUAL(LV_DRAW_TASK_STATE_FINISHED, task.state);
+    TEST_ASSERT_TRUE(EVE_Cmd_waitFlush(phost));
+    TEST_ASSERT_GREATER_THAN_UINT32(705, EVE_Hal_rd32(phost, REG_CMD_DL) / 4);
+    TEST_ASSERT_LESS_THAN_UINT32(1024, EVE_Hal_rd32(phost, REG_CMD_DL) / 4);
+}
+
+void test_dynamic_fmt_txt_label_uses_bitmap_bound(void)
+{
+    lv_binfont_dsc_t source = {
+        .path = "A:src/test_assets/test_font_1.fnt",
+        .dynamic_glyph_load = true,
+    };
+    loaded_font = lv_binfont_create_ex(&source);
+    TEST_ASSERT_NOT_NULL(loaded_font);
+    label.font = loaded_font;
+    label.text = "Hello";
+    task.area = task.clip_area = (lv_area_t) {20, 20, 300, 100};
+    TEST_ASSERT_LESS_THAN_UINT32(128, lv_draw_eve5_label_dl_bound(&task, false));
+    assert_render_bound();
+}
+
+static const void * image_glyph_path(const lv_font_t * font, uint32_t letter, uint32_t next,
+                                   int32_t * offset_y, void * user_data)
+{
+    LV_UNUSED(font);
+    LV_UNUSED(next);
+    LV_UNUSED(offset_y);
+    LV_UNUSED(user_data);
+    LV_IMAGE_DECLARE(emoji_F617);
+    return letter == 0xF617 ? &emoji_F617 : NULL;
+}
+
+void test_compressed_label_keeps_image_glyph_fallback_bound(void)
+{
+    LV_FONT_DECLARE(test_font_montserrat_ascii_3bpp_compressed);
+    lv_font_t compressed = test_font_montserrat_ascii_3bpp_compressed;
+    lv_font_t fallback = lv_font_montserrat_16;
+    compressed.fallback = &fallback;
+    fallback.fallback = NULL;
+    label.font = &compressed;
+    label.text = "a\xEF\x98\x97z";
+    task.area = task.clip_area = (lv_area_t) {20, 20, 300, 120};
+    uint32_t without_image = lv_draw_eve5_label_dl_bound(&task, false);
+    image_font = lv_imgfont_create(80, image_glyph_path, NULL);
+    TEST_ASSERT_NOT_NULL(image_font);
+    fallback.fallback = image_font;
+    lv_font_glyph_dsc_t glyph;
+    TEST_ASSERT_TRUE(lv_font_get_glyph_dsc(label.font, &glyph, 0xF617, 0));
+    TEST_ASSERT_EQUAL(LV_FONT_GLYPH_FORMAT_IMAGE, glyph.format);
+    TEST_ASSERT_GREATER_THAN_UINT32(without_image, lv_draw_eve5_label_dl_bound(&task, false));
+    assert_render_bound();
+    label.rotation = 450;
+    assert_render_bound();
 }
 #endif

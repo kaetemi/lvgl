@@ -1284,7 +1284,7 @@ static void alpha_glyph_cb(lv_draw_task_t * t, lv_draw_glyph_dsc_t * glyph_dsc,
 #define DL_LABEL            12  /* lv_draw_eve5_hal_draw_label */
 #define DL_GLYPH            10  /* Bitmap glyph (draw_glyph_cb) */
 #define DL_GLYPH_XFORM      22  /* Rotated bitmap glyph */
-#define DL_GLYPH_IMAGE      43  /* Image glyph, only from fonts other than plain fmt_txt */
+#define DL_GLYPH_IMAGE      43  /* Image glyph, only from fonts other than fmt_txt */
 #define DL_GLYPH_DECOR      13  /* Underline, strikethrough or selection fill */
 #define DL_GLYPH_PLACEHOLDER 43 /* Box of a glyph the fonts don't have (draw_glyph_placeholder) */
 #define DL_CMDTEXT_COLOR    2   /* rom_line_set_color */
@@ -1354,10 +1354,13 @@ uint32_t lv_draw_eve5_label_dl_bound(const lv_draw_task_t * t, bool clipped)
         while(bytes < dsc->text_length && dsc->text[bytes] != '\0') bytes++;
     }
 
-    /* Budget for the most expensive glyph among all fonts that fallback resolution may select. */
+    /* Budget for the most expensive glyph among all fonts that fallback resolution may select.
+     * fmt_txt produces bitmap glyphs even when compressed or loaded on demand. Those need the
+     * generic upload path, but not the image-glyph allowance. Classify by the callback here;
+     * is_plain_fmt_txt only decides whether bitmap data can be uploaded directly. */
     uint32_t glyph = (dsc->rotation % 3600 != 0) ? DL_GLYPH_XFORM : DL_GLYPH;
     for(const lv_font_t * f = dsc->font; f != NULL; f = f->fallback) {
-        if(!font_is_cmdtext_font(f) && !is_plain_fmt_txt(f)) {
+        if(!font_is_cmdtext_font(f) && f->get_glyph_bitmap != lv_font_get_bitmap_fmt_txt) {
             glyph = LV_MAX(glyph, DL_GLYPH_IMAGE);
             break;
         }
