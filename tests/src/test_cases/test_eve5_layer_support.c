@@ -5,6 +5,7 @@
 #include "src/core/lv_obj_draw_private.h"
 #include "src/display/lv_display_private.h"
 #include "src/draw/lv_draw_private.h"
+#include "src/indev/lv_indev_private.h"
 #include "src/drivers/display/eve5/lv_eve5.h"
 #include "src/draw/eve5/lv_draw_eve5.h"
 
@@ -70,6 +71,8 @@ void tearDown(void)
     lv_draw_eve5_set_enabled(true);
     lv_draw_invalidate_layer_support();
     if(other_display) lv_display_delete(other_display);
+    lv_test_mouse_release();
+    lv_test_wait(40);
     lv_obj_clean(lv_screen_active());
     lv_refr_now(NULL);
     lv_free(reference);
@@ -322,5 +325,103 @@ void test_bar_mask_falls_back_to_visible_indicator(void)
     if(!lv_draw_layer_supported(NULL)) {
         TEST_ASSERT_GREATER_THAN_UINT32(before, lv_draw_get_layer_fallback_count(NULL));
     }
+}
+
+static void drag_up(lv_obj_t * obj)
+{
+    lv_obj_update_layout(obj);
+    lv_area_t coords;
+    lv_obj_get_coords(obj, &coords);
+    lv_point_t start = {coords.x1 + lv_area_get_width(&coords) / 2,
+                        coords.y1 + lv_area_get_height(&coords) * 3 / 4};
+    lv_test_mouse_release();
+    lv_indev_t * mouse = lv_test_indev_get_indev(LV_INDEV_TYPE_POINTER);
+    lv_indev_read(mouse);
+    for(int i = 0; i < 3; i++) {
+        lv_point_t p = {start.x, start.y - i * 16};
+        lv_obj_transform_point(obj, &p, LV_OBJ_POINT_TRANSFORM_FLAG_RECURSIVE);
+        lv_test_mouse_move_to(p.x, p.y);
+        lv_test_mouse_press();
+        lv_tick_inc(40);
+        lv_indev_read(mouse);
+        lv_obj_update_layout(obj);
+    }
+}
+
+static void check_scroll_gestures(void)
+{
+    int32_t dragged[2];
+    lv_indev_t * mouse = lv_test_indev_get_indev(LV_INDEV_TYPE_POINTER);
+    for(unsigned transformed = 0; transformed < 2; transformed++) {
+        lv_obj_t * panel = panel_create();
+        lv_obj_set_size(panel, 120, 120);
+        lv_obj_set_scroll_dir(panel, LV_DIR_VER);
+        lv_obj_t * content = lv_obj_create(panel);
+        lv_obj_set_size(content, 80, 1000);
+        if(transformed) {
+            lv_obj_set_style_transform_pivot_x(panel, 60, 0);
+            lv_obj_set_style_transform_pivot_y(panel, 60, 0);
+            lv_obj_set_style_transform_rotation(panel, 900, 0);
+        }
+        drag_up(panel);
+        dragged[transformed] = lv_obj_get_scroll_y(panel);
+        lv_test_mouse_release();
+        lv_indev_read(mouse);
+        /* Throw velocity must use the same vertical axis as the content. */
+        TEST_ASSERT_EQUAL_INT32(0, mouse->pointer.scroll_throw_vect.x);
+        TEST_ASSERT_LESS_THAN(0, mouse->pointer.scroll_throw_vect.y);
+        lv_obj_delete(panel);
+    }
+    TEST_ASSERT_GREATER_THAN(0, dragged[0]);
+    TEST_ASSERT_EQUAL_INT32(dragged[0], dragged[1]);
+}
+
+static void check_roller_drag(void)
+{
+    int32_t dragged[2];
+    lv_indev_t * mouse = lv_test_indev_get_indev(LV_INDEV_TYPE_POINTER);
+    for(unsigned transformed = 0; transformed < 2; transformed++) {
+        lv_obj_t * roller = lv_roller_create(lv_screen_active());
+        lv_obj_set_pos(roller, 100, 100);
+        lv_obj_set_size(roller, 120, 120);
+        lv_roller_set_options(roller, "0\n1\n2\n3\n4\n5\n6\n7\n8\n9\n10\n11\n12\n13\n14\n15", LV_ROLLER_MODE_NORMAL);
+        lv_roller_set_selected(roller, 4, LV_ANIM_OFF);
+        if(transformed) {
+            lv_obj_set_style_transform_pivot_x(roller, 60, 0);
+            lv_obj_set_style_transform_pivot_y(roller, 60, 0);
+            lv_obj_set_style_transform_rotation(roller, 900, 0);
+        }
+        lv_obj_update_layout(roller);
+        lv_obj_t * label = lv_obj_get_child(roller, 0);
+        int32_t before = lv_obj_get_y(label);
+        drag_up(roller);
+        dragged[transformed] = before - lv_obj_get_y(label);
+        lv_test_mouse_release();
+        lv_indev_read(mouse);
+        TEST_ASSERT_GREATER_THAN_UINT32(4, lv_roller_get_selected(roller));
+        lv_obj_delete(roller);
+    }
+    TEST_ASSERT_EQUAL_INT32(32, dragged[0]);
+    TEST_ASSERT_EQUAL_INT32(dragged[0], dragged[1]);
+}
+void test_scroll_gestures_follow_the_effective_transform(void)
+{
+    check_scroll_gestures();
+}
+
+void test_roller_drag_follows_the_effective_transform(void)
+{
+    check_roller_drag();
+}
+
+void test_input_with_supported_layer_transforms(void)
+{
+    /* These input checks read the device explicitly, without drawing. Exercise
+     * transformed geometry even when the test hardware has no render targets. */
+    LV_GLOBAL_DEFAULT()->draw_info.unit_head = &mock_unit;
+    accepted_display = lv_display_get_default();
+    lv_draw_invalidate_layer_support();
+    check_scroll_gestures();
+    check_roller_drag();
 }
 #endif
