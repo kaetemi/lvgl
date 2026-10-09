@@ -45,6 +45,15 @@
 
 #include "lv_eve5_asset_font.h"
 
+#if LV_USE_EVE5
+/* Draw-unit helpers, including the stubs on chips without CMD_LOADASSET. */
+void * lv_eve5_asset_font_get_owner_internal(const lv_font_t * font);
+uint8_t lv_eve5_asset_font_get_cached_handle_internal(const lv_font_t * font);
+void lv_eve5_asset_font_set_cached_handle_internal(const lv_font_t * font, uint8_t handle);
+uint32_t lv_eve5_asset_font_get_last_bound_addr_internal(const lv_font_t * font);
+void lv_eve5_asset_font_set_last_bound_addr_internal(const lv_font_t * font, uint32_t addr);
+#endif
+
 #if LV_USE_EVE5 && (EVE_SUPPORT_CHIPID >= EVE_BT820)
 
 #include "lv_eve5.h"
@@ -385,12 +394,6 @@ uint32_t lv_eve5_asset_font_get_first_char(const lv_font_t * font)
  * resolve binds a bitmap handle via CMD_SETFONT2 using these. The dsc
  * pointer itself serves as the stable owner identity for the handle pool.
  **********************/
-
-void * lv_eve5_asset_font_get_owner_internal(const lv_font_t * font);
-uint8_t lv_eve5_asset_font_get_cached_handle_internal(const lv_font_t * font);
-void lv_eve5_asset_font_set_cached_handle_internal(const lv_font_t * font, uint8_t handle);
-uint32_t lv_eve5_asset_font_get_last_bound_addr_internal(const lv_font_t * font);
-void lv_eve5_asset_font_set_last_bound_addr_internal(const lv_font_t * font, uint32_t addr);
 
 void * lv_eve5_asset_font_get_owner_internal(const lv_font_t * font)
 {

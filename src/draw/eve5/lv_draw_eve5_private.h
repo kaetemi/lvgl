@@ -64,7 +64,7 @@ extern "C" {
 /* Vector graphics have no hardware path, the SW renderer draws them into a
  * texture. Set to 0 to drop vector tasks instead. */
 #ifndef LV_DRAW_EVE5_SW_VECTOR
-#define LV_DRAW_EVE5_SW_VECTOR LV_USE_VECTOR_GRAPHIC
+#define LV_DRAW_EVE5_SW_VECTOR (LV_USE_VECTOR_GRAPHIC && LV_USE_DRAW_SW)
 #endif
 
 /* Labels in FreeType outline fonts, whose glyphs are vector paths: the SW
@@ -946,6 +946,7 @@ static inline bool eve5_is_extended_format(uint16_t eve_format)
  *  plain stride * height. */
 static inline uint32_t eve5_rt_surface_size(uint16_t eve_format, uint32_t stride, uint32_t aligned_h)
 {
+    LV_UNUSED(eve_format);
 #if (EVE_SUPPORT_CHIPID >= EVE_BT820) || defined(EVE_MULTI_GRAPHICS_TARGET)
     if(eve_format == YCBCR) return stride * aligned_h / 2;
 #endif

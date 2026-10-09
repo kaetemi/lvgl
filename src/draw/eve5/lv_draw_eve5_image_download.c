@@ -42,8 +42,10 @@ typedef struct {
 static bool row_reader_init(row_reader_t * rd, EVE_HalContext * hal, uint32_t addr, uint32_t stride, int32_t h);
 static uint8_t * row_reader_row(row_reader_t * rd, int32_t y);
 
+#if (EVE_SUPPORT_CHIPID >= EVE_BT820)
 static void convert_rgb8_to_xrgb8888(const uint8_t * src, uint8_t * dst, uint32_t w);
 static void convert_argb8_to_rgb565a8(const uint8_t * src, uint8_t * rgb_dst, uint8_t * alpha_dst, uint32_t w);
+#endif
 static void unpremultiply_argb8(uint8_t * row, uint32_t w);
 static void convert_rgb565_to_swapped(const uint8_t * src, uint8_t * dst, uint32_t w);
 
@@ -85,6 +87,7 @@ static uint8_t * row_reader_row(row_reader_t * rd, int32_t y)
     return rd->buf + (uint32_t)index * rd->stride;
 }
 
+#if (EVE_SUPPORT_CHIPID >= EVE_BT820)
 static void convert_rgb8_to_xrgb8888(const uint8_t * src, uint8_t * dst, uint32_t w)
 {
     for(uint32_t x = 0; x < w; x++) {
@@ -95,7 +98,8 @@ static void convert_rgb8_to_xrgb8888(const uint8_t * src, uint8_t * dst, uint32_
     }
 }
 
-/** Convert ARGB8 (BGRA, 4 bpp) to RGB565 + separate A8 plane. */
+#endif
+
 /**
  * Premultiplied ARGB8 (B, G, R, A in memory) back to straight alpha, in place.
  *
@@ -124,6 +128,8 @@ static void unpremultiply_argb8(uint8_t * row, uint32_t w)
     }
 }
 
+#if (EVE_SUPPORT_CHIPID >= EVE_BT820)
+/** Convert ARGB8 (BGRA, 4 bpp) to RGB565 + separate A8 plane. */
 static void convert_argb8_to_rgb565a8(const uint8_t * src, uint8_t * rgb_dst, uint8_t * alpha_dst, uint32_t w)
 {
     for(uint32_t x = 0; x < w; x++) {
@@ -139,6 +145,8 @@ static void convert_argb8_to_rgb565a8(const uint8_t * src, uint8_t * rgb_dst, ui
         alpha_dst[x] = a;
     }
 }
+
+#endif
 
 /** Byte-swap RGB565 pixels. */
 static void convert_rgb565_to_swapped(const uint8_t * src, uint8_t * dst, uint32_t w)

@@ -43,9 +43,11 @@ static bool row_writer_init(row_writer_t * wr, EVE_HalContext * hal, uint32_t ad
 static uint8_t * row_writer_row(row_writer_t * wr, int32_t y);
 static void row_writer_commit(row_writer_t * wr, int32_t y);
 
+#if (EVE_SUPPORT_CHIPID >= EVE_BT820)
 static void convert_rgb565a8_to_argb8(const uint8_t * rgb, const uint8_t * alpha,
                                       uint8_t * dst, uint32_t w);
 static void convert_xrgb8888_to_rgb8(const uint8_t * src, uint8_t * dst, uint32_t w);
+#endif
 static void convert_rgb565_byteswap(const uint8_t * src, uint8_t * dst, uint32_t w);
 static void convert_argb8888_to_argb4(const uint8_t * src, uint8_t * dst, uint32_t w);
 static void convert_rgb888_to_rgb565(const uint8_t * src, uint8_t * dst, uint32_t w);
@@ -59,6 +61,7 @@ static void premultiply_argb8888(const uint8_t * src, uint8_t * dst, uint32_t w)
  * IMAGE FORMAT CONVERSION
  **********************/
 
+#if (EVE_SUPPORT_CHIPID >= EVE_BT820)
 static void convert_rgb565a8_to_argb8(const uint8_t * rgb, const uint8_t * alpha,
                                       uint8_t * dst, uint32_t w)
 {
@@ -91,6 +94,8 @@ static void convert_xrgb8888_to_rgb8(const uint8_t * src, uint8_t * dst, uint32_
         dst[3 * x + 2] = src[4 * x + 2];  /* R */
     }
 }
+
+#endif
 
 static void convert_rgb565_byteswap(const uint8_t * src, uint8_t * dst, uint32_t w)
 {
@@ -283,8 +288,6 @@ bool lv_draw_eve5_get_eve_format_info(EVE_HalContext *hal,
      * 16bpp formats with lossy bit-per-channel conversion at upload. */
 #if (EVE_SUPPORT_CHIPID >= EVE_BT820)
     bool has_argb8 = EVE_Hal_supportRenderTarget(hal);
-#else
-    bool has_argb8 = false;
 #endif
 
     switch(src_cf) {

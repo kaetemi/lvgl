@@ -262,6 +262,30 @@ endif()
 
 lvgl_add_test_folder_if(NOT CONFIG_LV_CHECK_ARG_ASSERT_ON_FAIL test_cases/public_api)
 lvgl_get_test_files(TEST_CASE_FILES)
+if(NOT CONFIG_LV_USE_DRAW_SW)
+    list(REMOVE_ITEM TEST_CASE_FILES ${LVGL_TEST_DIR}/src/test_cases/draw/test_draw_custom_handlers.c)
+endif()
+if(NOT CONFIG_LV_USE_VECTOR_GRAPHIC)
+    list(REMOVE_ITEM TEST_CASE_FILES
+        ${LVGL_TEST_DIR}/src/test_cases/draw/test_draw_vector.c
+        ${LVGL_TEST_DIR}/src/test_cases/draw/test_draw_vector_detail.c)
+endif()
+if(NOT CONFIG_LV_USE_SVG)
+    list(REMOVE_ITEM TEST_CASE_FILES
+        ${LVGL_TEST_DIR}/src/test_cases/draw/test_draw_svg.c
+        ${LVGL_TEST_DIR}/src/test_cases/libs/test_svg_decoder.c
+        ${LVGL_TEST_DIR}/src/test_cases/test_svg.c
+        ${LVGL_TEST_DIR}/src/test_cases/test_svg_file.c)
+endif()
+if(NOT CONFIG_LV_USE_SVG_ANIMATION)
+    list(REMOVE_ITEM TEST_CASE_FILES ${LVGL_TEST_DIR}/src/test_cases/test_svg_anim.c)
+endif()
+if(NOT CONFIG_LV_USE_DEMO_VECTOR_GRAPHIC)
+    list(REMOVE_ITEM TEST_CASE_FILES ${LVGL_TEST_DIR}/src/test_cases/test_demo_vector_graphic.c)
+endif()
+if(NOT CONFIG_LV_USE_LOTTIE)
+    list(REMOVE_ITEM TEST_CASE_FILES ${LVGL_TEST_DIR}/src/test_cases/widgets/test_lottie.c)
+endif()
 
 file(GLOB_RECURSE TEST_HELPERS_FILES src/test_helpers/*.c)
 

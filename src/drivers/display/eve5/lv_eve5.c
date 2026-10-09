@@ -121,8 +121,10 @@ static void wait_cb(lv_display_t * disp);
 static void invalidate_area_cb(lv_event_t * e);
 static void refr_ready_cb(lv_event_t * e);
 static void delete_event_cb(lv_event_t * e);
+#ifdef EVE_SUPPORT_RENDERTARGET
 static void composite_to_framebuffer(lv_eve5_driver_t * drvr);
 static void full_mode_sw_present(lv_eve5_driver_t * drvr, const lv_area_t * area, const uint8_t * px_map);
+#endif
 static void swapchain_presented(lv_eve5_driver_t * drvr);
 static const lv_draw_buf_handlers_t * full_buf_handlers(void);
 static lv_draw_buf_t * create_tile_buf(EVE_HalContext * phost, lv_color_format_t cf);
@@ -296,10 +298,12 @@ lv_display_t * lv_eve5_create_ex(EVE_HalContext *hal, EVE_GpuAlloc *allocator,
     EVE_CoDl_clear(phost, true, true, true);
     EVE_CoDl_display(phost);
     EVE_CoCmd_swap(phost);
+#ifdef EVE_SUPPORT_RENDERTARGET
     if(EVE_Hal_supportRenderTarget(phost)) {
         EVE_CoCmd_graphicsFinish(phost);
         swapchain_presented(drvr);
     }
+#endif
     EVE_Cmd_waitFlush(phost);
 
     EVE_CoCmd_dlStart(phost);
@@ -308,10 +312,12 @@ lv_display_t * lv_eve5_create_ex(EVE_HalContext *hal, EVE_GpuAlloc *allocator,
     EVE_CoDl_clear(phost, true, true, true);
     EVE_CoDl_display(phost);
     EVE_CoCmd_swap(phost);
+#ifdef EVE_SUPPORT_RENDERTARGET
     if(EVE_Hal_supportRenderTarget(phost)) {
         EVE_CoCmd_graphicsFinish(phost);
         swapchain_presented(drvr);
     }
+#endif
     EVE_Cmd_waitFlush(phost);
 
     /* Detect which buffer is front by reading back the test color. Only
@@ -389,6 +395,7 @@ bool lv_eve5_detach_gpu_handle(lv_draw_buf_t * buf, EVE_GpuHandle *out_handle,
 
 /* Take the EVE memory of a rendered tile from the draw unit, see
  * lv_eve5_detach_gpu_handle */
+#ifdef EVE_SUPPORT_RENDERTARGET
 static bool detach_tile(lv_eve5_driver_t * drvr, lv_draw_buf_t * buf, EVE_GpuHandle * out_handle,
                         uint16_t * out_format, uint32_t * out_stride)
 {
@@ -406,6 +413,7 @@ static bool detach_tile(lv_eve5_driver_t * drvr, lv_draw_buf_t * buf, EVE_GpuHan
     return true;
 #endif
 }
+#endif
 
 bool lv_eve5_set_render_mode(lv_display_t * disp, lv_eve5_render_mode_t mode)
 {
