@@ -1348,7 +1348,8 @@ void lv_draw_eve5_label_dl_bounds(const lv_draw_task_t * t, bool clipped, uint32
 
     uint32_t start = 0;
     uint32_t bytes = 0;
-    if(!clipped || !label_clipped_text(t, &start, &bytes)) {
+    bool clipped_text = clipped && label_clipped_text(t, &start, &bytes);
+    if(!clipped_text) {
         start = 0;
         bytes = 0;
         /* Each character is at least one byte */
@@ -1377,20 +1378,45 @@ void lv_draw_eve5_label_dl_bounds(const lv_draw_task_t * t, bool clipped, uint32
     if(dsc->decor & LV_TEXT_DECOR_STRIKETHROUGH) decor++;
     if(dsc->sel_start != LV_DRAW_LABEL_NO_TXT_SEL && dsc->sel_end != LV_DRAW_LABEL_NO_TXT_SEL) decor++;
 
-    /* Characters the fonts don't have are drawn as boxes */
+    /* Under pressure, classify the visited Unicode glyphs from their metrics.
+     * Tiny TTF and FreeType A8 glyphs use the bitmap path; FreeType can also
+     * produce image glyphs, including through a fallback. No bitmap callback
+     * is needed. Keep the ordinary estimate and whole-string CMD_TEXT path
+     * unchanged, and share the existing missing-glyph scan when enabled. */
+    bool refine_glyphs = clipped_text && !font_is_cmdtext_font(dsc->font);
+    uint32_t refined_plain = 0;
+    uint32_t refined_rotated = 0;
     uint32_t missing = 0;
-#if LV_USE_FONT_PLACEHOLDER
-    if(dsc->font != NULL) {
+    if(dsc->font != NULL && (refine_glyphs || LV_USE_FONT_PLACEHOLDER)) {
         uint32_t i = 0;
         while(i < bytes) {
             uint32_t letter = lv_text_encoded_next(dsc->text + start, &i);
             /* Line breaks and markers are not drawn */
             if(letter < 0x20 || lv_text_is_marker(letter)) continue;
             lv_font_glyph_dsc_t g;
-            if(!lv_font_get_glyph_dsc(dsc->font, &g, letter, 0)) missing++;
+            if(!lv_font_get_glyph_dsc(dsc->font, &g, letter, 0)) {
+#if LV_USE_FONT_PLACEHOLDER
+                missing++;
+#endif
+            }
+            else if(refine_glyphs && g.box_w && g.box_h) {
+                /* The iterator skips empty glyphs. Decorations keep their
+                 * separate byte-based allowance, including spaces. */
+                bool bitmap = g.format > LV_FONT_GLYPH_FORMAT_NONE && g.format < LV_FONT_GLYPH_FORMAT_IMAGE;
+                uint32_t plain = bitmap ? DL_GLYPH : DL_GLYPH_IMAGE;
+                if(g.format == LV_FONT_GLYPH_FORMAT_NONE) plain = DL_GLYPH_PLACEHOLDER;
+                refined_plain += plain;
+                refined_rotated += bitmap ? DL_GLYPH_XFORM : plain;
+            }
         }
     }
-#endif
+
+    if(refine_glyphs) {
+        uint32_t common = DL_LABEL + bytes * decor * DL_GLYPH_DECOR + missing * DL_GLYPH_PLACEHOLDER;
+        cost[2] = common + refined_plain;
+        cost[0] = cost[1] = common + (dsc->rotation % 3600 != 0 ? refined_rotated : refined_plain);
+        return;
+    }
 
     cost[2] = DL_LABEL + bytes * (glyph + decor * DL_GLYPH_DECOR) + missing * DL_GLYPH_PLACEHOLDER;
     if(dsc->rotation % 3600 != 0) glyph = LV_MAX(glyph, DL_GLYPH_XFORM);

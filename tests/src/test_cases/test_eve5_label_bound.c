@@ -9,6 +9,9 @@ static lv_draw_eve5_unit_t * unit;
 static lv_font_t * rom_font;
 static lv_font_t * image_font;
 static lv_font_t * loaded_font;
+static lv_font_t * tiny_font;
+static lv_font_t * freetype_font;
+static lv_font_t * emoji_font;
 static lv_layer_t layer;
 static lv_draw_task_t task;
 static lv_draw_label_dsc_t label;
@@ -42,6 +45,9 @@ void setUp(void)
     rom_font = NULL;
     image_font = NULL;
     loaded_font = NULL;
+    tiny_font = NULL;
+    freetype_font = NULL;
+    emoji_font = NULL;
     lv_memzero(&layer, sizeof(layer));
     layer.buf_area = (lv_area_t) {0, 0, 799, 479};
     lv_memzero(&task, sizeof(task));
@@ -70,6 +76,9 @@ void tearDown(void)
     lv_eve5_rom_font_destroy(rom_font);
     if(image_font) lv_imgfont_destroy(image_font);
     lv_binfont_destroy(loaded_font);
+    if(tiny_font) lv_tiny_ttf_destroy(tiny_font);
+    if(freetype_font) lv_freetype_font_delete(freetype_font);
+    if(emoji_font) lv_freetype_font_delete(emoji_font);
     lv_free(unit);
 }
 
@@ -227,7 +236,7 @@ void test_compressed_label_fits_after_existing_display_list(void)
     task.clip_area = (lv_area_t) {50, 397, 748, 423};
     uint32_t bound = lv_draw_eve5_label_dl_bound(&task, false);
     TEST_ASSERT_LESS_THAN_UINT32(1024, bound);
-    TEST_ASSERT_EQUAL_UINT32(bound, lv_draw_eve5_label_dl_bound(&task, true));
+    TEST_ASSERT_LESS_OR_EQUAL_UINT32(bound, lv_draw_eve5_label_dl_bound(&task, true));
     assert_render_bound();
     label.rotation = 450;
     assert_render_bound();
@@ -262,6 +271,87 @@ void test_dynamic_fmt_txt_label_uses_bitmap_bound(void)
     label.text = "Hello";
     task.area = task.clip_area = (lv_area_t) {20, 20, 300, 100};
     TEST_ASSERT_LESS_THAN_UINT32(128, lv_draw_eve5_label_dl_bound(&task, false));
+    assert_render_bound();
+}
+
+void test_tiny_ttf_labels_fit_together_after_refinement(void)
+{
+    tiny_font = lv_tiny_ttf_create_file("A:src/test_assets/test_gpos_one.ttf", 60);
+    TEST_ASSERT_NOT_NULL(tiny_font);
+    label.font = tiny_font;
+    label.text = "ĄJ Ąg Ąģ Ąj Ąȷ Qȷ ąj ąȷ gȷ ģȷ ıȷ ųȷ vȷ Va Vá Vą Vf Vﬂ V.";
+    label.line_space = 0;
+    task.area = task.clip_area = (lv_area_t) {50, 20, 749, 220};
+    TEST_ASSERT_GREATER_THAN_UINT32(2048, lv_draw_eve5_label_dl_bound(&task, false));
+    TEST_ASSERT_LESS_THAN_UINT32(1024, lv_draw_eve5_label_dl_bound(&task, true));
+    assert_render_bound();
+    label.rotation = 450;
+    assert_render_bound();
+    label.rotation = 0;
+
+    lv_draw_task_t next = task;
+    next.area = next.clip_area = (lv_area_t) {50, 250, 749, 450};
+    task.next = &next;
+    lv_draw_eve5_dl_start(unit);
+    EVE_HalContext * phost = unit->hal;
+    for(unsigned i = 0; i < 8; i++) EVE_CoCmd_dl(phost, COLOR_RGB(255, 255, 255));
+    lv_draw_eve5_slice_t slice = {0};
+    lv_draw_eve5_budget_t budget = {0};
+    budget.reserve = EVE5_DL_FINISH_NORT;
+    budget.can_split = true;
+    TEST_ASSERT_EQUAL_INT(2, lv_draw_eve5_render_tasks(unit, &layer, true, true, &slice, &budget));
+    TEST_ASSERT_NULL(budget.stop);
+    TEST_ASSERT_EQUAL(LV_DRAW_TASK_STATE_FINISHED, next.state);
+    TEST_ASSERT_TRUE(EVE_Cmd_waitFlush(phost));
+    TEST_ASSERT_GREATER_THAN_UINT32(8, EVE_Hal_rd32(phost, REG_CMD_DL) / 4);
+    TEST_ASSERT_LESS_OR_EQUAL_UINT32(2048 - EVE5_DL_FINISH_NORT, EVE_Hal_rd32(phost, REG_CMD_DL) / 4);
+    task.next = NULL;
+}
+
+void test_binary_font_with_tiny_ttf_fallback_bound(void)
+{
+    loaded_font = lv_binfont_create("A:src/test_assets/test_font_1.fnt");
+    tiny_font = lv_tiny_ttf_create_file("A:src/test_files/fonts/noto/NotoSansSC-Regular.ttf", 24);
+    TEST_ASSERT_NOT_NULL(loaded_font);
+    TEST_ASSERT_NOT_NULL(tiny_font);
+    loaded_font->fallback = tiny_font;
+    label.font = loaded_font;
+    label.text = "这是一段中文。\nThis is a English text.\nSymbols: " LV_SYMBOL_OK LV_SYMBOL_CLOSE;
+    label.line_space = 0;
+    task.area = task.clip_area = (lv_area_t) {20, 20, 700, 200};
+    lv_font_glyph_dsc_t glyph;
+    TEST_ASSERT_TRUE(lv_font_get_glyph_dsc(label.font, &glyph, 0x8FD9, 0));
+    TEST_ASSERT_EQUAL_PTR(tiny_font, glyph.resolved_font);
+    TEST_ASSERT_EQUAL(LV_FONT_GLYPH_FORMAT_A8, glyph.format);
+    TEST_ASSERT_GREATER_THAN_UINT32(2048, lv_draw_eve5_label_dl_bound(&task, false));
+    TEST_ASSERT_LESS_THAN_UINT32(1024, lv_draw_eve5_label_dl_bound(&task, true));
+    assert_render_bound();
+}
+
+void test_freetype_bound_preserves_color_image_glyphs(void)
+{
+    freetype_font = lv_freetype_font_create("./src/test_files/fonts/noto/NotoSansSC-Regular.ttf",
+                                          LV_FREETYPE_FONT_RENDER_MODE_BITMAP, 24, LV_FREETYPE_FONT_STYLE_NORMAL);
+    emoji_font = lv_freetype_font_create("../examples/libs/freetype/NotoColorEmoji-32.subset.ttf",
+                                       LV_FREETYPE_FONT_RENDER_MODE_BITMAP, 12, LV_FREETYPE_FONT_STYLE_NORMAL);
+    TEST_ASSERT_NOT_NULL(freetype_font);
+    TEST_ASSERT_NOT_NULL(emoji_font);
+    emoji_font->fallback = freetype_font;
+    label.font = emoji_font;
+    label.text = "这是一段中文。\nFreeType bitmap glyphs and color emoji: 😀 😀 😀";
+    label.line_space = 0;
+    task.area = task.clip_area = (lv_area_t) {20, 20, 780, 200};
+    lv_font_glyph_dsc_t glyph;
+    TEST_ASSERT_TRUE(lv_font_get_glyph_dsc(label.font, &glyph, 'F', 0));
+    TEST_ASSERT_EQUAL_PTR(freetype_font, glyph.resolved_font);
+    TEST_ASSERT_EQUAL(LV_FONT_GLYPH_FORMAT_A8, glyph.format);
+    TEST_ASSERT_TRUE(lv_font_get_glyph_dsc(label.font, &glyph, 0x1F600, 0));
+    TEST_ASSERT_EQUAL_PTR(emoji_font, glyph.resolved_font);
+    TEST_ASSERT_EQUAL(LV_FONT_GLYPH_FORMAT_IMAGE, glyph.format);
+    TEST_ASSERT_GREATER_THAN_UINT32(2048, lv_draw_eve5_label_dl_bound(&task, false));
+    TEST_ASSERT_LESS_THAN_UINT32(1024, lv_draw_eve5_label_dl_bound(&task, true));
+    assert_render_bound();
+    label.rotation = 450;
     assert_render_bound();
 }
 
