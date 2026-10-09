@@ -714,10 +714,12 @@ static void draw_square_fill_with_border(lv_draw_eve5_unit_t * u,
     int32_t x2 = outer.x2 - layer_area->x1 + 2;
     int32_t y2 = outer.y2 - layer_area->y1 + 2;
     EVE_HalContext * phost = u->hal;
-    EVE_CoDl_colorRgb(phost, fill->color.red, fill->color.green, fill->color.blue);
-    EVE_CoDl_colorA(phost, fill->opa);
     EVE_CoDl_lineWidth(phost, 16);
     EVE_CoDl_saveContext(phost);
+    /* Both colors belong to this pair. Preserve the surrounding content's
+     * color and opacity so consecutive labels can reuse them across cells. */
+    EVE_CoDl_colorRgb(phost, fill->color.red, fill->color.green, fill->color.blue);
+    EVE_CoDl_colorA(phost, fill->opa);
     lv_draw_eve5_set_scissor(u, &outer, layer_area);
     EVE_CoDl_clear(phost, 0, 1, 0);
     EVE_CoDl_stencilOp(phost, KEEP, REPLACE);
