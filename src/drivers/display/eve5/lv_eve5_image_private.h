@@ -52,7 +52,7 @@ uint32_t eve5_jpeg_exif_orientation(const uint8_t * data, uint32_t len);
 static inline int32_t eve5_format_bpp(uint32_t eve_format)
 {
     switch(eve_format) {
-#if (EVE_SUPPORT_CHIPID >= EVE_BT820)
+#ifdef EVE_SUPPORT_TRUECOLOR
         case ARGB8:
             return 4;
         case RGB8:
@@ -63,6 +63,8 @@ static inline int32_t eve5_format_bpp(uint32_t eve_format)
         case ARGB4:
 #if (EVE_SUPPORT_CHIPID >= EVE_BT820)
         case LA8:
+#endif
+#ifdef EVE_SUPPORT_TRUECOLOR
         case YCBCR: /* 2x2 block format: line stride is 2 bytes/pixel, but each
                      * stored line covers two display rows (1 byte/pixel surface
                      * total — see eve5_rt_surface_size for sizing) */

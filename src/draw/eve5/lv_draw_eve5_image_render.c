@@ -382,8 +382,12 @@ void lv_draw_eve5_hal_draw_image(lv_draw_eve5_unit_t * u, const lv_draw_task_t *
             EVE_CoDl_bitmapSource(phost, mask_ram_g_addr);
             set_palette_if_needed(phost, mask_eve_format, mask_palette_addr);
             /* ARGB8/PALETTEDARGB8: extract RED as alpha (grayscale PNGs decode with R=G=B=gray) */
+#ifdef EVE_SUPPORT_TRUECOLOR
+            if(mask_eve_format == ARGB8
 #if (EVE_SUPPORT_CHIPID >= EVE_BT820)
-            if(mask_eve_format == ARGB8 || mask_eve_format == PALETTEDARGB8) {
+               || mask_eve_format == PALETTEDARGB8
+#endif
+              ) {
                 lv_draw_eve5_bitmap_layout(u, GLFORMAT, mask_eve_stride, mask_h);
                 EVE_CoDl_bitmapExtFormat(phost, mask_eve_format);
                 EVE_CoDl_bitmapSwizzle(phost, ZERO, ZERO, ZERO, RED);

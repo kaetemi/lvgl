@@ -896,8 +896,12 @@ static inline bool lv_draw_eve5_format_has_alpha(uint16_t eve_format)
     if(eve_format == PALETTED565)
         return false;
 #endif
+#ifdef EVE_SUPPORT_TRUECOLOR
+    if(eve_format == RGB8 || eve_format == YCBCR)
+        return false;
+#endif
 #if (EVE_SUPPORT_CHIPID >= EVE_BT820) || defined(EVE_MULTI_GRAPHICS_TARGET)
-    if(eve_format == RGB8 || eve_format == RGB6 || eve_format == YCBCR)
+    if(eve_format == RGB6)
         return false;
 #endif
     return true;

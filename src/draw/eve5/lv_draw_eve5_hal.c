@@ -1293,13 +1293,17 @@ void lv_draw_eve5_hal_draw_texture(lv_draw_eve5_unit_t * u,
 
     EVE_CoDl_bitmapHandle(phost, u->bitmap_scratch.handle);
     EVE_CoDl_bitmapSource(phost, ram_g_addr);
-    /* SW fallback renders LVGL ARGB8888 (4 bpp at upload). ARGB8 is
-     * BT820-only; the ARGB4 fallback compiles but is functionally a stub. */
-#if (EVE_SUPPORT_CHIPID >= EVE_BT820)
-    lv_draw_eve5_bitmap_layout(u, ARGB8, eve_stride, tex_h);
-#else
-    lv_draw_eve5_bitmap_layout(u, ARGB4, eve_stride, tex_h);
+    /* SW fallback uploads ARGB8888; BT819 also samples it as ARGB8.
+     * The legacy ARGB4 fallback still requires an upload conversion. */
+#ifdef EVE_SUPPORT_TRUECOLOR
+    if(EVE_Hal_supportTrueColor(phost)) {
+        lv_draw_eve5_bitmap_layout(u, ARGB8, eve_stride, tex_h);
+    }
+    else
 #endif
+    {
+        lv_draw_eve5_bitmap_layout(u, ARGB4, eve_stride, tex_h);
+    }
     lv_draw_eve5_bitmap_size(u, NEAREST, BORDER, BORDER, tex_w, tex_h);
 
     if(premultiplied) EVE_CoDl_blendFunc(phost, ONE, ONE_MINUS_SRC_ALPHA);
@@ -1422,8 +1426,12 @@ void lv_draw_eve5_apply_bitmap_mask(lv_draw_eve5_unit_t * u, lv_layer_t * layer,
     EVE_CoDl_bitmapHandle(phost, u->bitmap_scratch.handle);
     EVE_CoDl_bitmapSource(phost, mask_addr);
     set_palette_if_needed(phost, mask_img->eve_format, mask_palette);
+#ifdef EVE_SUPPORT_TRUECOLOR
+    if(mask_img->eve_format == ARGB8
 #if (EVE_SUPPORT_CHIPID >= EVE_BT820)
-    if(mask_img->eve_format == ARGB8 || mask_img->eve_format == PALETTEDARGB8) {
+       || mask_img->eve_format == PALETTEDARGB8
+#endif
+      ) {
         lv_draw_eve5_bitmap_layout(u, GLFORMAT, mask_img->stride, mask_img->height);
         EVE_CoDl_bitmapExtFormat(phost, mask_img->eve_format);
         EVE_CoDl_bitmapSwizzle(phost, ZERO, ZERO, ZERO, RED);

@@ -605,10 +605,12 @@ bool lv_draw_eve5_lvgl_bin_cf_supported(uint8_t lv_cf)
 #if (EVE_SUPPORT_CHIPID >= EVE_BT820) || defined(EVE_MULTI_GRAPHICS_TARGET)
         case LV_COLOR_FORMAT_AL88:           /* EVE LA8 (BT820+); declined at runtime if chipid < BT820 */
 #endif
-#if (EVE_SUPPORT_CHIPID >= EVE_BT820)
+#ifdef EVE_SUPPORT_TRUECOLOR
         case LV_COLOR_FORMAT_RGB888:
         case LV_COLOR_FORMAT_ARGB8888:
         case LV_COLOR_FORMAT_ARGB8888_PREMULTIPLIED:
+#endif
+#if (EVE_SUPPORT_CHIPID >= EVE_BT820)
         case LV_COLOR_FORMAT_ARGB2222:
 #endif
         /* Conversion-required CFs that lv_draw_eve5_get_eve_format_info /
@@ -639,8 +641,8 @@ bool lv_draw_eve5_lvgl_bin_cf_supported(uint8_t lv_cf)
  *               plus PALETTED / TEXT8X8 / TEXTVGA / BARGRAPH): every chip
  *   codes 14-17 (PALETTED565 / 4444 / 8 / L2): FT810+
  *   code  31    (GLFORMAT): BT815+
- *   codes 19-28 (RGB8 / ARGB8 / PALETTEDARGB8 / RGB6 / ARGB6 / LA1-LA8 /
- *               YCBCR): BT820+
+ *   codes 19, 20, 28 (RGB8 / ARGB8 / YCBCR): BT819 and BT820+
+ *   codes 21-27 (PALETTEDARGB8 / RGB6 / ARGB6 / LA1-LA8): BT820+
  */
 static bool eve5_lvgl_bin_cf_direct_copy(EVE_HalContext * phost, lv_color_format_t lv_cf)
 {
@@ -660,12 +662,13 @@ static bool eve5_lvgl_bin_cf_direct_copy(EVE_HalContext * phost, lv_color_format
          * with bit-replication, so direct-copy isn't valid there. */
         case LV_COLOR_FORMAT_A2:
             return EVE_CHIPID >= EVE_FT810;
-#if (EVE_SUPPORT_CHIPID >= EVE_BT820) || defined(EVE_MULTI_GRAPHICS_TARGET)
-        /* RGB8 (19), ARGB8 (20), LA8 (27). BT820+ — pre-BT820 the upload
-         * either converts to 16bpp (RGB8/ARGB8) or declines (LA8). */
+#ifdef EVE_SUPPORT_TRUECOLOR
         case LV_COLOR_FORMAT_RGB888:
         case LV_COLOR_FORMAT_ARGB8888:
         case LV_COLOR_FORMAT_ARGB8888_PREMULTIPLIED:
+            return EVE_Hal_supportTrueColor(phost);
+#endif
+#if (EVE_SUPPORT_CHIPID >= EVE_BT820) || defined(EVE_MULTI_GRAPHICS_TARGET)
         case LV_COLOR_FORMAT_AL88:
             return EVE_CHIPID >= EVE_BT820;
 #endif
@@ -694,6 +697,8 @@ static uint16_t eve5_lvgl_bin_cf_to_eve_format(lv_color_format_t lv_cf, bool * i
 #endif
 #if (EVE_SUPPORT_CHIPID >= EVE_BT820)
         case LV_COLOR_FORMAT_ARGB2222:  return ARGB2;
+#endif
+#ifdef EVE_SUPPORT_TRUECOLOR
         case LV_COLOR_FORMAT_RGB888:    return RGB8;
         case LV_COLOR_FORMAT_ARGB8888:  return ARGB8;
         case LV_COLOR_FORMAT_ARGB8888_PREMULTIPLIED:
@@ -1559,11 +1564,13 @@ static void decoder_query_reset_cb(EVE_HalContext * phost, void * userdata)
 static lv_color_format_t eve_format_to_lv_cf(uint16_t eve_fmt, bool prefer_luminance_for_l8)
 {
     switch(eve_fmt) {
-#if (EVE_SUPPORT_CHIPID >= EVE_BT820)
+#ifdef EVE_SUPPORT_TRUECOLOR
         case ARGB8:
             return LV_COLOR_FORMAT_ARGB8888;
         case RGB8:
             return LV_COLOR_FORMAT_RGB888;
+#endif
+#if (EVE_SUPPORT_CHIPID >= EVE_BT820)
         case PALETTEDARGB8:
             return LV_COLOR_FORMAT_I8;
 #endif

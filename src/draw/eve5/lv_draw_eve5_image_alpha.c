@@ -232,7 +232,7 @@ void lv_draw_eve5_hal_alpha_draw_image(lv_draw_eve5_unit_t * u, const lv_draw_ta
                 }
             }
 
-#if (EVE_SUPPORT_CHIPID >= EVE_BT820)
+#ifdef EVE_SUPPORT_TRUECOLOR
             bool eve_format_is_argb8 = (eve_format == ARGB8);
 #else
             bool eve_format_is_argb8 = false;
@@ -290,8 +290,12 @@ void lv_draw_eve5_hal_alpha_draw_image(lv_draw_eve5_unit_t * u, const lv_draw_ta
                     /* ARGB8/PALETTEDARGB8: use GLFORMAT + swizzle to extract RED as alpha
                      * (grayscale PNGs decode with R=G=B=gray, A=255).
                      * L8/A8: BT820 natively decodes as (255,255,255,L) so no swizzle is needed. */
+#ifdef EVE_SUPPORT_TRUECOLOR
+                    if(mask_bmp_format == ARGB8
 #if (EVE_SUPPORT_CHIPID >= EVE_BT820)
-                    if(mask_bmp_format == ARGB8 || mask_bmp_format == PALETTEDARGB8) {
+                       || mask_bmp_format == PALETTEDARGB8
+#endif
+                      ) {
                         lv_draw_eve5_bitmap_layout(u, GLFORMAT, mask_bmp_stride, mask_bmp_h);
                         EVE_CoDl_bitmapExtFormat(phost, mask_bmp_format);
                         EVE_CoDl_bitmapSwizzle(phost, ZERO, ZERO, ZERO, RED);
@@ -451,8 +455,12 @@ void lv_draw_eve5_hal_alpha_draw_image(lv_draw_eve5_unit_t * u, const lv_draw_ta
                     EVE_CoDl_bitmapSource(phost, mask_addr);
                     set_palette_if_needed(phost, mask_eve_format, mask_palette_addr);
                     /* ARGB8/PALETTEDARGB8: use GLFORMAT + swizzle to extract RED as alpha */
+#ifdef EVE_SUPPORT_TRUECOLOR
+                    if(mask_eve_format == ARGB8
 #if (EVE_SUPPORT_CHIPID >= EVE_BT820)
-                    if(mask_eve_format == ARGB8 || mask_eve_format == PALETTEDARGB8) {
+                       || mask_eve_format == PALETTEDARGB8
+#endif
+                      ) {
                         lv_draw_eve5_bitmap_layout(u, GLFORMAT, mask_eve_stride, mask_h);
                         EVE_CoDl_bitmapExtFormat(phost, mask_eve_format);
                         EVE_CoDl_bitmapSwizzle(phost, ZERO, ZERO, ZERO, RED);

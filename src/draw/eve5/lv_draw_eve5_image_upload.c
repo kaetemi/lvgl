@@ -43,7 +43,7 @@ static bool row_writer_init(row_writer_t * wr, EVE_HalContext * hal, uint32_t ad
 static uint8_t * row_writer_row(row_writer_t * wr, int32_t y);
 static void row_writer_commit(row_writer_t * wr, int32_t y);
 
-#if (EVE_SUPPORT_CHIPID >= EVE_BT820)
+#ifdef EVE_SUPPORT_TRUECOLOR
 static void convert_rgb565a8_to_argb8(const uint8_t * rgb, const uint8_t * alpha,
                                       uint8_t * dst, uint32_t w);
 static void convert_xrgb8888_to_rgb8(const uint8_t * src, uint8_t * dst, uint32_t w);
@@ -61,7 +61,7 @@ static void premultiply_argb8888(const uint8_t * src, uint8_t * dst, uint32_t w)
  * IMAGE FORMAT CONVERSION
  **********************/
 
-#if (EVE_SUPPORT_CHIPID >= EVE_BT820)
+#ifdef EVE_SUPPORT_TRUECOLOR
 static void convert_rgb565a8_to_argb8(const uint8_t * rgb, const uint8_t * alpha,
                                       uint8_t * dst, uint32_t w)
 {
@@ -238,7 +238,7 @@ bool lv_draw_eve5_convert_row(lv_color_format_t lv_cf, uint16_t eve_fmt,
             return false;
 
         case LV_COLOR_FORMAT_XRGB8888:
-#if (EVE_SUPPORT_CHIPID >= EVE_BT820)
+#ifdef EVE_SUPPORT_TRUECOLOR
             if(eve_fmt == RGB8) {
                 convert_xrgb8888_to_rgb8(src_row, dst_row, (uint32_t)w);
                 return true;
@@ -284,10 +284,10 @@ bool lv_draw_eve5_get_eve_format_info(EVE_HalContext *hal,
     LV_UNUSED(phost);
     *needs_conversion = false;
 
-    /* RGB8 / ARGB8 / PALETTEDARGB8 are BT820-only; earlier gens fall back to
-     * 16bpp formats with lossy bit-per-channel conversion at upload. */
-#if (EVE_SUPPORT_CHIPID >= EVE_BT820)
-    bool has_argb8 = EVE_Hal_supportRenderTarget(hal);
+    /* BT819 supports RGB8 / ARGB8 independently of render targets. Older
+     * chips still use lossy 16bpp uploads; PALETTEDARGB8 remains BT820-only. */
+#ifdef EVE_SUPPORT_TRUECOLOR
+    bool has_truecolor = EVE_Hal_supportTrueColor(hal);
 #endif
 
     switch(src_cf) {
@@ -325,9 +325,8 @@ bool lv_draw_eve5_get_eve_format_info(EVE_HalContext *hal,
             break;
 
         /* LVGL AL88 (lv_color16a_t: byte 0 = L, byte 1 = A) is byte-for-byte
-         * identical to EVE LA8. Per the chip "Bitmap formats" matrix any code
-         * above L2 (17) is BT820+, and LA8 (27) is inside the BT_82X_ENABLE
-         * block in EVE_GpuDefs.h — pre-BT820 single-target builds don't have
+         * identical to EVE LA8. Unlike RGB8/ARGB8, LA8 is BT820-only and
+         * inside the BT_82X_ENABLE block in EVE_GpuDefs.h — earlier builds don't have
          * the symbol. Pre-BT820 declines so the LVGL bin decoder / SW renderer
          * takes over. */
 #if (EVE_SUPPORT_CHIPID >= EVE_BT820) || defined(EVE_MULTI_GRAPHICS_TARGET)
@@ -368,8 +367,8 @@ bool lv_draw_eve5_get_eve_format_info(EVE_HalContext *hal,
             break;
 
         case LV_COLOR_FORMAT_RGB888:
-#if (EVE_SUPPORT_CHIPID >= EVE_BT820)
-            if(has_argb8) {
+#ifdef EVE_SUPPORT_TRUECOLOR
+            if(has_truecolor) {
                 *eve_format = RGB8;
                 *bits_per_pixel = 24;
             }
@@ -383,8 +382,8 @@ bool lv_draw_eve5_get_eve_format_info(EVE_HalContext *hal,
             break;
 
         case LV_COLOR_FORMAT_XRGB8888:
-#if (EVE_SUPPORT_CHIPID >= EVE_BT820)
-            if(has_argb8) {
+#ifdef EVE_SUPPORT_TRUECOLOR
+            if(has_truecolor) {
                 *eve_format = RGB8;
                 *bits_per_pixel = 24;
             }
@@ -399,8 +398,8 @@ bool lv_draw_eve5_get_eve_format_info(EVE_HalContext *hal,
 
         case LV_COLOR_FORMAT_ARGB8888:
         case LV_COLOR_FORMAT_ARGB8888_PREMULTIPLIED:
-#if (EVE_SUPPORT_CHIPID >= EVE_BT820)
-            if(has_argb8) {
+#ifdef EVE_SUPPORT_TRUECOLOR
+            if(has_truecolor) {
                 *eve_format = ARGB8;
                 *bits_per_pixel = 32;
             }
@@ -414,8 +413,8 @@ bool lv_draw_eve5_get_eve_format_info(EVE_HalContext *hal,
             break;
 
         case LV_COLOR_FORMAT_RGB565A8:
-#if (EVE_SUPPORT_CHIPID >= EVE_BT820)
-            if(has_argb8) {
+#ifdef EVE_SUPPORT_TRUECOLOR
+            if(has_truecolor) {
                 *eve_format = ARGB8;
                 *bits_per_pixel = 32;
             }
@@ -433,7 +432,7 @@ bool lv_draw_eve5_get_eve_format_info(EVE_HalContext *hal,
         case LV_COLOR_FORMAT_I4:
         case LV_COLOR_FORMAT_I8:
 #if (EVE_SUPPORT_CHIPID >= EVE_BT820)
-            if(has_argb8) {
+            if(EVE_Hal_supportRenderTarget(hal)) {
                 *eve_format = PALETTEDARGB8;
                 *bits_per_pixel = 8;  /* Expanded to 8-bit indices for EVE */
                 *needs_conversion = true;
@@ -612,7 +611,7 @@ lv_eve5_vram_res_t * lv_draw_eve5_upload_image_to_gpu_ex(lv_draw_eve5_unit_t * u
     uint32_t ram_g_addr = base_addr + palette_size;
 
     bool premultiplied = false;
-#if (EVE_SUPPORT_CHIPID >= EVE_BT820)
+#ifdef EVE_SUPPORT_TRUECOLOR
     premultiply = premultiply && src_cf == LV_COLOR_FORMAT_ARGB8888 && eve_format == ARGB8
                   && !(img_dsc->header.flags & LV_IMAGE_FLAGS_PREMULTIPLIED);
 #else
@@ -783,7 +782,7 @@ lv_eve5_vram_res_t * lv_draw_eve5_upload_image_to_gpu_ex(lv_draw_eve5_unit_t * u
 
                     for(int32_t y = 0; y < src_h; y++) {
                         uint8_t * tmp_buf = row_writer_row(&wr, y);
-#if (EVE_SUPPORT_CHIPID >= EVE_BT820)
+#ifdef EVE_SUPPORT_TRUECOLOR
                         if(eve_format == ARGB8) {
                             convert_rgb565a8_to_argb8(src_buf + y * src_stride,
                                                       alpha_buf + y * alpha_stride,
@@ -791,7 +790,7 @@ lv_eve5_vram_res_t * lv_draw_eve5_upload_image_to_gpu_ex(lv_draw_eve5_unit_t * u
                         }
                         else
 #endif
-                        { /* ARGB4 fallback for non-RT */
+                        { /* ARGB4 fallback without truecolor */
                             convert_rgb565a8_to_argb4(src_buf + y * src_stride,
                                                       alpha_buf + y * alpha_stride,
                                                       tmp_buf, src_w);

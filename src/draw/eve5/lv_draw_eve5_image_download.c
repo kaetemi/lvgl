@@ -42,7 +42,7 @@ typedef struct {
 static bool row_reader_init(row_reader_t * rd, EVE_HalContext * hal, uint32_t addr, uint32_t stride, int32_t h);
 static uint8_t * row_reader_row(row_reader_t * rd, int32_t y);
 
-#if (EVE_SUPPORT_CHIPID >= EVE_BT820)
+#ifdef EVE_SUPPORT_TRUECOLOR
 static void convert_rgb8_to_xrgb8888(const uint8_t * src, uint8_t * dst, uint32_t w);
 static void convert_argb8_to_rgb565a8(const uint8_t * src, uint8_t * rgb_dst, uint8_t * alpha_dst, uint32_t w);
 #endif
@@ -87,7 +87,7 @@ static uint8_t * row_reader_row(row_reader_t * rd, int32_t y)
     return rd->buf + (uint32_t)index * rd->stride;
 }
 
-#if (EVE_SUPPORT_CHIPID >= EVE_BT820)
+#ifdef EVE_SUPPORT_TRUECOLOR
 static void convert_rgb8_to_xrgb8888(const uint8_t * src, uint8_t * dst, uint32_t w)
 {
     for(uint32_t x = 0; x < w; x++) {
@@ -128,7 +128,7 @@ static void unpremultiply_argb8(uint8_t * row, uint32_t w)
     }
 }
 
-#if (EVE_SUPPORT_CHIPID >= EVE_BT820)
+#ifdef EVE_SUPPORT_TRUECOLOR
 /** Convert ARGB8 (BGRA, 4 bpp) to RGB565 + separate A8 plane. */
 static void convert_argb8_to_rgb565a8(const uint8_t * src, uint8_t * rgb_dst, uint8_t * alpha_dst, uint32_t w)
 {
@@ -184,7 +184,7 @@ bool lv_draw_eve5_download_image(lv_draw_eve5_unit_t * u,
     lv_draw_eve5_stats.downloads++;
     lv_draw_eve5_stats.download_bytes += (uint64_t)vr->stride * (uint32_t)buf->header.h;
 
-#if (EVE_SUPPORT_CHIPID >= EVE_BT820)
+#ifdef EVE_SUPPORT_TRUECOLOR
     /* YCBCR surfaces (opaque canvas render targets under
      * LV_DRAW_EVE5_OPAQUE_CANVAS_YCBCR) have no host-side decode here; fail
      * loudly so ensure_resident migration reports the limitation instead of
@@ -208,9 +208,13 @@ bool lv_draw_eve5_download_image(lv_draw_eve5_unit_t * u,
      * buffer requires it.
      */
     bool unpremultiply = false;
-#if (EVE_SUPPORT_CHIPID >= EVE_BT820)
+#ifdef EVE_SUPPORT_TRUECOLOR
     unpremultiply = vr->is_premultiplied
-                    && (eve_fmt == ARGB8 || eve_fmt == ARGB4 || eve_fmt == ARGB1555 || eve_fmt == LA8)
+                    && (eve_fmt == ARGB8 || eve_fmt == ARGB4 || eve_fmt == ARGB1555
+#if (EVE_SUPPORT_CHIPID >= EVE_BT820)
+                        || eve_fmt == LA8
+#endif
+                       )
                     && lv_cf != LV_COLOR_FORMAT_ARGB8888_PREMULTIPLIED
                     && !(buf->header.flags & LV_IMAGE_FLAGS_PREMULTIPLIED);
 #endif
@@ -235,7 +239,7 @@ bool lv_draw_eve5_download_image(lv_draw_eve5_unit_t * u,
                                                     &expected_bpp, &upload_converts)) {
                     if(eve_fmt != expected_eve_fmt || upload_converts) needs_conversion = true;
                 }
-#if (EVE_SUPPORT_CHIPID >= EVE_BT820)
+#ifdef EVE_SUPPORT_TRUECOLOR
                 /* Premultiplied content in a packed format is unpremultiplied as ARGB8 */
                 if(unpremultiply && eve_fmt != ARGB8) needs_conversion = true;
 #endif
@@ -284,9 +288,9 @@ bool lv_draw_eve5_download_image(lv_draw_eve5_unit_t * u,
             break;
 
         case LV_COLOR_FORMAT_XRGB8888:
-#if (EVE_SUPPORT_CHIPID >= EVE_BT820)
+#ifdef EVE_SUPPORT_TRUECOLOR
             if(eve_fmt == RGB8) {
-                /* BT820: EVE stores RGB8 (3 bpp) → expand to XRGB8888 (4 bpp) */
+                /* Truecolor EVE stores RGB8 (3 bpp) → expand to XRGB8888 (4 bpp) */
                 for(int32_t y = 0; y < h; y++) {
                     row_buf = row_reader_row(&rd, y);
                     convert_rgb8_to_xrgb8888(row_buf, buf->data + y * lv_stride, w);
@@ -299,9 +303,9 @@ bool lv_draw_eve5_download_image(lv_draw_eve5_unit_t * u,
             goto generic_download;
 
         case LV_COLOR_FORMAT_RGB565A8:
-#if (EVE_SUPPORT_CHIPID >= EVE_BT820)
+#ifdef EVE_SUPPORT_TRUECOLOR
             if(eve_fmt == ARGB8) {
-                /* BT820: EVE stores ARGB8 → split into RGB565 + A8 plane. */
+                /* Truecolor EVE stores ARGB8 → split into RGB565 + A8 plane. */
                 uint32_t rgb_stride = (w * 16 + 7) / 8;
                 if(lv_stride > 0) rgb_stride = lv_stride;
                 uint32_t alpha_stride = rgb_stride / 2;
@@ -317,7 +321,7 @@ bool lv_draw_eve5_download_image(lv_draw_eve5_unit_t * u,
                 break;
             }
 #endif
-            /* Non-BT820: EVE stores ARGB4 (or similar). RGB565A8 download from
+            /* Without truecolor EVE stores ARGB4 (or similar). RGB565A8 download from
              * non-ARGB8 sources isn't currently supported — would need a
              * 2-plane conversion writer. */
             LV_LOG_WARN("EVE5: RGB565A8 download from eve_fmt=%d not supported", eve_fmt);
@@ -419,7 +423,7 @@ generic_download: {
                     for(int32_t x = 0; x < w; x++) {
                         uint8_t r = 0, g = 0, b = 0, a = 255;
                         switch(eve_fmt) {
-#if (EVE_SUPPORT_CHIPID >= EVE_BT820)
+#ifdef EVE_SUPPORT_TRUECOLOR
                             case ARGB8:
                                 b = row_buf[4 * x + 0];
                                 g = row_buf[4 * x + 1];
