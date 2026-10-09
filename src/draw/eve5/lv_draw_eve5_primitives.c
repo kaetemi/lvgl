@@ -687,12 +687,75 @@ void lv_draw_eve5_hal_draw_border(lv_draw_eve5_unit_t * u, const lv_draw_task_t 
  * FILL + BORDER UNIFIED
  **********************/
 
+/* Square corners let the scissor define exact coverage. Mark the interior
+ * while painting it, then paint the border through the complementary stencil.
+ * This also works with translucent fills without using framebuffer alpha as
+ * scratch storage or drawing each border side separately. */
+static void draw_square_fill_with_border(lv_draw_eve5_unit_t * u,
+                                         const lv_draw_task_t * fill_task,
+                                         const lv_draw_task_t * border_task)
+{
+    const lv_draw_fill_dsc_t * fill = fill_task->draw_dsc;
+    const lv_draw_border_dsc_t * border = border_task->draw_dsc;
+    const lv_area_t * layer_area = &fill_task->target_layer->buf_area;
+    lv_area_t outer;
+    if(!lv_area_intersect(&outer, &fill_task->area, &fill_task->clip_area) ||
+       !lv_area_intersect(&outer, &outer, &border_task->clip_area) ||
+       !lv_area_intersect(&outer, &outer, layer_area)) return;
+
+    lv_area_t inner = fill_task->area;
+    lv_area_increase(&inner, -border->width, -border->width);
+    bool has_inner = lv_area_intersect(&inner, &inner, &outer);
+
+    /* Keep the vertices near the visible region even for very large objects.
+     * Both passes use this oversized rect; their scissors provide hard edges. */
+    int32_t x1 = outer.x1 - layer_area->x1 - 2;
+    int32_t y1 = outer.y1 - layer_area->y1 - 2;
+    int32_t x2 = outer.x2 - layer_area->x1 + 2;
+    int32_t y2 = outer.y2 - layer_area->y1 + 2;
+    EVE_HalContext * phost = u->hal;
+    EVE_CoDl_colorRgb(phost, fill->color.red, fill->color.green, fill->color.blue);
+    EVE_CoDl_colorA(phost, fill->opa);
+    EVE_CoDl_lineWidth(phost, 16);
+    EVE_CoDl_saveContext(phost);
+    lv_draw_eve5_set_scissor(u, &outer, layer_area);
+    EVE_CoDl_clear(phost, 0, 1, 0);
+    EVE_CoDl_stencilOp(phost, KEEP, REPLACE);
+
+    if(has_inner) {
+        EVE_CoDl_stencilFunc(phost, ALWAYS, 1, 255);
+        lv_draw_eve5_set_scissor(u, &inner, layer_area);
+        EVE_CoDl_begin(phost, RECTS);
+        EVE_CoDl_vertex2f_0(phost, x1, y1);
+        EVE_CoDl_vertex2f_0(phost, x2, y2);
+        EVE_CoDl_end(phost);
+    }
+
+    EVE_CoDl_stencilFunc(phost, EQUAL, 0, 255);
+    lv_draw_eve5_set_scissor(u, &outer, layer_area);
+    EVE_CoDl_begin(phost, RECTS);
+    if(border->opa < LV_OPA_COVER) {
+        /* The border blends over the background fill, not directly over the
+         * previous scene. REPLACE writes reference zero, keeping the ring
+         * available for the following border-color pass. */
+        EVE_CoDl_vertex2f_0(phost, x1, y1);
+        EVE_CoDl_vertex2f_0(phost, x2, y2);
+    }
+    EVE_CoDl_colorRgb(phost, border->color.red, border->color.green, border->color.blue);
+    EVE_CoDl_colorA(phost, border->opa);
+    EVE_CoDl_vertex2f_0(phost, x1, y1);
+    EVE_CoDl_vertex2f_0(phost, x2, y2);
+    EVE_CoDl_end(phost);
+    EVE_CoDl_restoreContext(phost);
+}
+
 /**
  * Optimized combined fill+border rendering.
  *
  * When fill is opaque with no gradient and border covers all sides, draws
  * outer rect (blended border color) + inner rect (fill color) instead of
- * using the expensive alpha masking path.
+ * using the expensive alpha masking path. Translucent solid fills with square
+ * full borders use the stencil to separate the interior from the border ring.
  */
 void lv_draw_eve5_hal_draw_fill_with_border(lv_draw_eve5_unit_t * u,
                                             const lv_draw_task_t * fill_task,
@@ -710,6 +773,15 @@ void lv_draw_eve5_hal_draw_fill_with_border(lv_draw_eve5_unit_t * u,
     }
     if(border_dsc->opa <= LV_OPA_MIN) {
         lv_draw_eve5_hal_draw_fill(u, fill_task, false);
+        return;
+    }
+
+    if(fill_dsc->opa < LV_OPA_MAX && fill_dsc->radius == 0 && border_dsc->radius == 0 &&
+       border_dsc->side == LV_BORDER_SIDE_FULL && border_dsc->width > 0 &&
+       fill_dsc->grad.dir == LV_GRAD_DIR_NONE &&
+       lv_area_is_equal(&fill_task->area, &border_task->area) &&
+       lv_area_is_equal(&fill_task->clip_area, &border_task->clip_area)) {
+        draw_square_fill_with_border(u, fill_task, border_task);
         return;
     }
 
