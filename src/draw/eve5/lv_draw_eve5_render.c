@@ -77,6 +77,11 @@ bool lv_draw_eve5_is_fully_inside_opaque(lv_draw_eve5_unit_t * u, const lv_area_
     lv_area_t visible;
     if(!lv_area_intersect(&visible, task_area, clip_area)) return true;
 
+    /* The opaque shape only covers the part that its own task drew. */
+    const lv_area_t * opaque_clip = &u->alpha_opaque_task->clip_area;
+    if(visible.x1 < opaque_clip->x1 || visible.y1 < opaque_clip->y1 ||
+       visible.x2 > opaque_clip->x2 || visible.y2 > opaque_clip->y2) return false;
+
     int32_t vx1 = visible.x1 - layer_area->x1;
     int32_t vy1 = visible.y1 - layer_area->y1;
     int32_t vx2 = visible.x2 - layer_area->x1;
@@ -178,7 +183,8 @@ lv_draw_task_t * lv_draw_eve5_fill_matching_border(lv_draw_task_t * t, const lv_
 
     const lv_draw_fill_dsc_t * fill_dsc = t->draw_dsc;
     const lv_draw_border_dsc_t * border_dsc = next->draw_dsc;
-    if(!eve5_fill_border_area_match(&t->area, &next->area) || fill_dsc->radius != border_dsc->radius) {
+    if(!eve5_fill_border_area_match(&t->area, &next->area) || fill_dsc->radius != border_dsc->radius ||
+       !lv_area_is_equal(&t->clip_area, &next->clip_area)) {
         return NULL;
     }
     return next;
@@ -561,7 +567,7 @@ void lv_draw_eve5_opaque_prepass(lv_draw_eve5_unit_t * u, lv_layer_t * layer, co
 
                     /* Fill+border pairing: use border's outer area when matched */
                     lv_draw_task_t * next = t->next;
-                    if(next &&
+                    if(next && next != slice->end &&
                        next->preferred_draw_unit_id == DRAW_UNIT_ID_EVE5 &&
                        prepass_task_pending(next) &&
                        next->type == LV_DRAW_TASK_TYPE_BORDER &&
@@ -570,7 +576,8 @@ void lv_draw_eve5_opaque_prepass(lv_draw_eve5_unit_t * u, lv_layer_t * layer, co
                         const lv_draw_border_dsc_t * border_dsc = next->draw_dsc;
 
                         if(eve5_fill_border_area_match(&t->area, &next->area) &&
-                           dsc->radius == border_dsc->radius) {
+                           dsc->radius == border_dsc->radius &&
+                           lv_area_is_equal(&t->clip_area, &next->clip_area)) {
                             if(fill_opa >= LV_OPA_MAX) {
                                 int32_t bx1 = next->area.x1 - layer_area->x1;
                                 int32_t by1 = next->area.y1 - layer_area->y1;
@@ -608,7 +615,8 @@ void lv_draw_eve5_opaque_prepass(lv_draw_eve5_unit_t * u, lv_layer_t * layer, co
                         int32_t rout = LV_MIN3((w - 1) / 2, (h - 1) / 2, dsc->radius);
 
                         lv_area_t border_local = { x1, y1, x2, y2 };
-                        if(eve5_fill_border_area_match(&u->alpha_opaque_area, &border_local)) {
+                        if(eve5_fill_border_area_match(&u->alpha_opaque_area, &border_local) &&
+                           lv_area_is_equal(&u->alpha_opaque_task->clip_area, &t->clip_area)) {
                             lv_draw_eve5_track_alpha_opaque(u, x1, y1, x2, y2, rout, t);
                         }
                     }
@@ -848,6 +856,20 @@ EVE_GpuHandle lv_draw_eve5_render_alpha_to_l8(lv_draw_eve5_unit_t * u, lv_layer_
  * DIRECT-TO-ALPHA PASS
  **********************/
 
+/* Clear only the fully covered interior used by is_fully_inside_opaque.
+ * The rounded edge has already been replayed, including the coverage of
+ * any shadows or other content under it. Replacing that edge with the
+ * fill's alpha alone would leave RGB greater than alpha and a pale fringe. */
+static void alpha_clear_opaque_interior(lv_draw_eve5_unit_t * u, const lv_area_t * area,
+                                        const lv_area_t * layer_area)
+{
+    lv_area_t clipped;
+    if(!lv_area_intersect(&clipped, area, &u->alpha_opaque_task->clip_area) ||
+       !lv_area_intersect(&clipped, &clipped, layer_area)) return;
+    lv_draw_eve5_set_scissor(u, &clipped, layer_area);
+    EVE_CoDl_clear(u->hal, 1, 0, 0);
+}
+
 /**
  * Direct-to-alpha correction pass: re-iterate tasks and write correct alpha.
  *
@@ -928,7 +950,7 @@ void lv_draw_eve5_alpha_pass(lv_draw_eve5_unit_t * u, lv_layer_t * layer, const 
                     lv_draw_task_t * next = t->next;
                     if(fill_dsc->opa >= LV_OPA_MAX &&
                        fill_dsc->grad.dir == LV_GRAD_DIR_NONE &&
-                       next &&
+                       next && next != slice->end &&
                        next->preferred_draw_unit_id == DRAW_UNIT_ID_EVE5 &&
                        next->state == LV_DRAW_TASK_STATE_IN_PROGRESS &&
                        next->type == LV_DRAW_TASK_TYPE_BORDER &&
@@ -937,7 +959,8 @@ void lv_draw_eve5_alpha_pass(lv_draw_eve5_unit_t * u, lv_layer_t * layer, const 
                         const lv_draw_border_dsc_t * border_dsc = next->draw_dsc;
 
                         if(eve5_fill_border_area_match(&t->area, &next->area) &&
-                           fill_dsc->radius == border_dsc->radius) {
+                           fill_dsc->radius == border_dsc->radius &&
+                           lv_area_is_equal(&t->clip_area, &next->clip_area)) {
                             lv_draw_eve5_alpha_draw_fill_with_border(u, t, next);
                             t->state = LV_DRAW_TASK_STATE_FINISHED;
                             t = next;
@@ -1007,26 +1030,31 @@ void lv_draw_eve5_alpha_pass(lv_draw_eve5_unit_t * u, lv_layer_t * layer, const 
         t = t->next;
     }
 
-    /* Fill opaque area with alpha=255 */
+    /* Restore skipped interiors without touching antialiased edges. */
     if(u->has_alpha_opaque) {
-        EVE_CoDl_colorA(phost, 255);
-        EVE_CoDl_blendFunc(phost, ONE, ZERO);
-        lv_draw_eve5_set_scissor(u, &(lv_area_t) {
-            u->alpha_opaque_area.x1 + layer_area->x1,
-            u->alpha_opaque_area.y1 + layer_area->y1,
-            u->alpha_opaque_area.x2 + layer_area->x1,
-            u->alpha_opaque_area.y2 + layer_area->y1
-        }, layer_area);
-        lv_draw_eve5_draw_rect(u,
-                               u->alpha_opaque_area.x1, u->alpha_opaque_area.y1,
-                               u->alpha_opaque_area.x2, u->alpha_opaque_area.y2,
-                               u->alpha_opaque_radius,
-        &(lv_area_t) {
-            u->alpha_opaque_area.x1 + layer_area->x1,
-            u->alpha_opaque_area.y1 + layer_area->y1,
-            u->alpha_opaque_area.x2 + layer_area->x1,
-            u->alpha_opaque_area.y2 + layer_area->y1
-        }, layer_area);
+        lv_area_t inner = {
+            u->alpha_opaque_area.x1 + layer_area->x1 + 1,
+            u->alpha_opaque_area.y1 + layer_area->y1 + 1,
+            u->alpha_opaque_area.x2 + layer_area->x1 - 1,
+            u->alpha_opaque_area.y2 + layer_area->y1 - 1
+        };
+        EVE_CoDl_saveContext(phost);
+        EVE_CoDl_clearColorA(phost, 255);
+        int32_t r = u->alpha_opaque_radius;
+        if(r > 0) {
+            lv_area_t bar = inner;
+            bar.x1 += r;
+            bar.x2 -= r;
+            alpha_clear_opaque_interior(u, &bar, layer_area);
+            bar = inner;
+            bar.y1 += r;
+            bar.y2 -= r;
+            alpha_clear_opaque_interior(u, &bar, layer_area);
+        }
+        else {
+            alpha_clear_opaque_interior(u, &inner, layer_area);
+        }
+        EVE_CoDl_restoreContext(phost);
     }
 
     EVE_CoDl_blendFunc_default(phost);
