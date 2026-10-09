@@ -345,10 +345,11 @@ bool lv_draw_eve5_try_load_file_image(lv_draw_eve5_unit_t * u, const void * src,
      * HARDWARE_LOADABLE flag replaces the manual color_type / bit_depth
      * screening that used to gate PNGs the chip can't decode. */
     EVE_ResourceInfo info;
-    uint32_t probe_opts = OPT_TRUECOLOR;
+    uint32_t probe_opts = EVE_Hal_supportRenderTarget(phost) ? OPT_TRUECOLOR : 0;
     int probe_status = 0;
-    /* Two-pass probe to capture single-channel JPEGs: pass 1 with OPT_TRUECOLOR
-     * (default for HW decode); if the source is a grayscale JPEG (Type=JPEG,
+    /* Probe with the options used by CMD_LOADIMAGE: NORT keeps compact
+     * formats even on BT819, which also supports truecolor. Two-pass probe
+     * to capture single-channel JPEGs: if the source is grayscale (Type=JPEG,
      * Channels=1), pass 2 with OPT_MONO so Size/Stride/Format predict the L8
      * decode (one byte per pixel instead of four for ARGB8) and the load picks up the
      * matching option. L8 from JPEG renders as opaque luminance through the
@@ -514,9 +515,7 @@ bool lv_draw_eve5_try_load_file_image(lv_draw_eve5_unit_t * u, const void * src,
     }
     phost->SuppressErrorOverlay = true;
 
-    uint32_t loadimage_opts = OPT_NODL | OPT_MEDIAFIFO;
-    if(probe_opts & OPT_MONO) loadimage_opts |= OPT_MONO;
-    else if(EVE_Hal_supportRenderTarget(phost)) loadimage_opts |= OPT_TRUECOLOR;
+    uint32_t loadimage_opts = OPT_NODL | OPT_MEDIAFIFO | probe_opts;
 
     EVE_CoCmd_loadImage(phost, addr, loadimage_opts);
     bool decoded = EVE_Cmd_waitFlush(phost);
@@ -1812,7 +1811,8 @@ static lv_result_t eve5_decoder_info(lv_image_decoder_t * decoder,
         }
 #endif
 
-        uint32_t probe_opts = OPT_TRUECOLOR;
+        /* Match the host-file loader's compact NORT / truecolor RT policy. */
+        uint32_t probe_opts = EVE_Hal_supportRenderTarget(phost) ? OPT_TRUECOLOR : 0;
         int probe_status = 0;
         for(int pass = 0; pass < 2; ++pass) {
             EVE_ResourceProbe probe;

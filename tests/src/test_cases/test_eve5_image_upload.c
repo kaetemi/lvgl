@@ -258,27 +258,87 @@ void test_eve5_cpu_rgb565a8_preserves_separate_alpha_plane(void)
 #endif
 }
 
-void test_eve5_hardware_jpeg_keeps_existing_decode_format(void)
-{
 #if EVE5_HW_IMAGE_DECODE && (EVE_SUPPORT_CHIPID >= EVE_BT817)
+static void check_hardware_decode(const char * path, uint32_t expected_format, uint32_t bytes_per_pixel,
+                                  bool paletted)
+{
     EVE_HalContext * phost = unit->hal;
     if(EVE_CHIPID < EVE_BT817) TEST_IGNORE_MESSAGE("GETIMAGE requires BT817+");
     uint32_t addr, palette;
     uint16_t fmt;
     int32_t stride, w, h;
-    TEST_ASSERT_TRUE(lv_draw_eve5_try_load_file_image(unit, "A:src/test_assets/test_img_lvgl_logo.jpg",
+    TEST_ASSERT_TRUE(lv_draw_eve5_try_load_file_image(unit, path,
                                                     &addr, &fmt, &stride, &w, &h, &decoded, &palette));
+    /* The loader releases its MediaFIFO staging buffer on return. Pixel data
+     * must already be complete, before another coprocessor command is sent. */
+    uint32_t size = (uint32_t)stride * h;
+    uint8_t * pixels = lv_malloc(size * 2);
+    TEST_ASSERT_NOT_NULL(pixels);
+    EVE_Hal_rdMem(phost, pixels, addr, size);
     /* Inspect the actual decode, independently of the loader's probe metadata. */
-    uint32_t actual_format;
-    TEST_ASSERT_TRUE(EVE_CoCmd_getImage(phost, NULL, &actual_format, NULL, NULL, NULL));
+    uint32_t actual_source, actual_format, actual_w, actual_h, actual_palette;
+    TEST_ASSERT_TRUE(EVE_CoCmd_getImage(phost, &actual_source, &actual_format, &actual_w, &actual_h,
+                                      &actual_palette));
+    EVE_Hal_rdMem(phost, pixels + size, addr, size);
+    bool complete = lv_memcmp(pixels, pixels + size, size) == 0;
+    lv_free(pixels);
+    TEST_ASSERT_TRUE_MESSAGE(complete, "Decoded pixels changed after the loader returned");
+    TEST_ASSERT_EQUAL_UINT32(expected_format, actual_format);
+    TEST_ASSERT_EQUAL_UINT32(actual_format, fmt);
+    TEST_ASSERT_EQUAL_UINT32(actual_source, addr);
+    TEST_ASSERT_EQUAL_UINT32(actual_w, w);
+    TEST_ASSERT_EQUAL_UINT32(actual_h, h);
+    TEST_ASSERT_EQUAL_UINT32(actual_w * bytes_per_pixel, stride);
+    if(paletted) TEST_ASSERT_EQUAL_UINT32(actual_palette, palette);
+    else TEST_ASSERT_EQUAL_UINT32(GA_INVALID, palette);
+
+    /* The decoder's info callback must describe the same rows before open. */
+    lv_image_header_t header;
+    TEST_ASSERT_EQUAL(LV_RESULT_OK, lv_image_decoder_get_info(path, &header));
+    TEST_ASSERT_EQUAL_UINT32(actual_w, header.w);
+    TEST_ASSERT_EQUAL_UINT32(actual_h, header.h);
+    TEST_ASSERT_EQUAL_UINT32(stride, header.stride);
+}
+#endif
+
+void test_eve5_hardware_jpeg_keeps_existing_decode_format(void)
+{
+#if EVE5_HW_IMAGE_DECODE && (EVE_SUPPORT_CHIPID >= EVE_BT817)
+    uint32_t format = RGB565, bytes_per_pixel = 2;
     if(EVE_Hal_supportRenderTarget(unit->hal)) {
 #ifdef EVE_SUPPORT_TRUECOLOR
-        TEST_ASSERT_EQUAL_UINT32(ARGB8, actual_format);
+        format = ARGB8;
+        bytes_per_pixel = 4;
 #endif
     }
-    else {
-        TEST_ASSERT_EQUAL_UINT32(RGB565, actual_format);
+    check_hardware_decode("A:src/test_assets/test_img_lvgl_logo.jpg", format, bytes_per_pixel, false);
+#endif
+}
+
+void test_eve5_hardware_png_metadata_matches_decode(void)
+{
+#if EVE5_HW_IMAGE_DECODE && (EVE_SUPPORT_CHIPID >= EVE_BT817)
+    uint32_t format = ARGB4, bytes_per_pixel = 2;
+    if(EVE_Hal_supportRenderTarget(unit->hal)) {
+#ifdef EVE_SUPPORT_TRUECOLOR
+        format = ARGB8;
+        bytes_per_pixel = 4;
+#endif
     }
+    check_hardware_decode("A:src/test_assets/test_img_lvgl_logo.png", format, bytes_per_pixel, false);
+#endif
+}
+
+void test_eve5_hardware_indexed_png_metadata_matches_decode(void)
+{
+#if EVE5_HW_IMAGE_DECODE && (EVE_SUPPORT_CHIPID >= EVE_BT817)
+    uint32_t format = PALETTED4444;
+#if EVE_SUPPORT_CHIPID >= EVE_BT820
+    if(EVE_Hal_supportRenderTarget(unit->hal)) {
+        format = PALETTEDARGB8;
+    }
+#endif
+    check_hardware_decode("A:src/test_assets/test_img_lvgl_logo_8bit_palette.png", format, 1, true);
 #endif
 }
 #endif
