@@ -313,6 +313,20 @@ static void frame_start_cb(lv_event_t * e)
 
 static bool read_screen_cb(lv_display_t * disp, uint8_t * buf, uint32_t stride)
 {
+    /* REFR_READY may invalidate the screen after NORT reclaimed assets from
+     * the previous scanout. Drain those redraws before capturing, without
+     * ticking time or forcing clean frames to render again. Also cover reads
+     * through screenshot_compare_core and screenshot_read. */
+    unsigned redraws = 0;
+    while(lv_eve5_has_pending_refresh(disp) && redraws < 8) {
+        lv_refr_now(disp);
+        redraws++;
+    }
+    if(lv_eve5_has_pending_refresh(disp)) {
+        printf("EVE5 capture: did not settle after %u redraws\n", redraws);
+        return false;
+    }
+
     /* A screenshot comparison: the buffers it decodes the reference into
      * aren't the test's */
 #if LV_USE_OS
@@ -322,7 +336,12 @@ static bool read_screen_cb(lv_display_t * disp, uint8_t * buf, uint32_t stride)
 #if LV_USE_OS
     lv_mutex_unlock(&s_buf_track.mutex);
 #endif
-    return lv_eve5_read_screen(disp, buf, stride);
+    bool ok = lv_eve5_read_screen(disp, buf, stride);
+    if(ok) {
+        printf("EVE5 capture: settled redraws=%u alloc_failures=%u\n", redraws,
+               (unsigned)EVE_GpuAlloc_GetAllocFailedCount(lv_eve5_get_allocator(disp)));
+    }
+    return ok;
 }
 
 static bool idle_cb(EVE_HalContext * phost)

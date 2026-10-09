@@ -81,6 +81,10 @@ typedef struct {
     bool full_frame_hw_rendered;
     /* Pending deferred screen invalidate; consumed by the REFR_READY handler. */
     bool invalidate_pending;
+    /* Deferred invalidation was issued but has not started rendering yet. */
+    bool redraw_pending;
+    /* Require progress across automatic allocator retries of the same scene. */
+    uint32_t alloc_retry_failures;
     lv_eve5_render_mode_t render_mode;
     /* Optional hook the draw unit registers via
      * lv_eve5_set_coprocessor_reset_handler so its bitmap-handle pool +
@@ -119,6 +123,7 @@ typedef struct {
 static void flush_cb(lv_display_t * disp, const lv_area_t * area, uint8_t * px_map);
 static void wait_cb(lv_display_t * disp);
 static void invalidate_area_cb(lv_event_t * e);
+static void render_start_cb(lv_event_t * e);
 static void refr_ready_cb(lv_event_t * e);
 static void delete_event_cb(lv_event_t * e);
 #ifdef EVE_SUPPORT_RENDERTARGET
@@ -213,6 +218,7 @@ lv_display_t * lv_eve5_create_ex(EVE_HalContext *hal, EVE_GpuAlloc *allocator,
     lv_display_add_event_cb(disp, invalidate_area_cb, LV_EVENT_INVALIDATE_AREA, NULL);
 
     /* Drain deferred-invalidate requests from the draw unit after each refresh */
+    lv_display_add_event_cb(disp, render_start_cb, LV_EVENT_RENDER_START, NULL);
     lv_display_add_event_cb(disp, refr_ready_cb, LV_EVENT_REFR_READY, NULL);
 
     lv_display_add_event_cb(disp, delete_event_cb, LV_EVENT_DELETE, NULL);
@@ -603,6 +609,27 @@ void lv_eve5_request_invalidate(lv_display_t * disp)
     drvr->invalidate_pending = true;
 }
 
+bool lv_eve5_has_pending_refresh(lv_display_t * disp)
+{
+    if(disp == NULL) return false;
+    lv_eve5_driver_t * drvr = lv_display_get_driver_data(disp);
+    return drvr != NULL && (drvr->invalidate_pending || drvr->redraw_pending);
+}
+
+bool lv_eve5_request_alloc_retry(lv_display_t * disp, uint32_t failures)
+{
+    if(disp == NULL || failures == 0) return false;
+    lv_eve5_driver_t * drvr = lv_display_get_driver_data(disp);
+    if(drvr == NULL) return false;
+    /* Freeing temporary allocations can repeat forever even when the scene
+     * cannot fit. Allow the first retry, then require fewer failed allocations.
+     * A later ordinary refresh starts a new retry sequence. */
+    if(failures >= drvr->alloc_retry_failures) return false;
+    drvr->alloc_retry_failures = failures;
+    lv_eve5_request_invalidate(disp);
+    return true;
+}
+
 void lv_eve5_reset_coprocessor(lv_display_t * disp)
 {
     if(disp == NULL) return;
@@ -930,6 +957,24 @@ static void invalidate_area_cb(lv_event_t * e)
     area->y2 = LV_MIN(area->y2 + 1, lv_display_get_vertical_resolution(disp) - 1);
 }
 
+static void render_start_cb(lv_event_t * e)
+{
+    lv_display_t * disp = lv_event_get_target(e);
+    lv_eve5_driver_t * drvr = lv_display_get_driver_data(disp);
+    if(!drvr->redraw_pending) drvr->alloc_retry_failures = UINT32_MAX;
+    drvr->redraw_pending = false;
+    /* Start before task creation and source uploads, not just DL emission.
+     * NORT checks this counter after the swap/GC to request a retry. Empty
+     * refreshes must retain the diagnostics of the still-displayed frame. */
+#if LV_USE_OS
+    lv_mutex_lock(&drvr->hal_mutex);
+#endif
+    EVE_GpuAlloc_ClearAllocFailedCount(drvr->allocator);
+#if LV_USE_OS
+    lv_mutex_unlock(&drvr->hal_mutex);
+#endif
+}
+
 static void refr_ready_cb(lv_event_t * e)
 {
     lv_display_t * disp = lv_event_get_target(e);
@@ -942,6 +987,7 @@ static void refr_ready_cb(lv_event_t * e)
     lv_obj_t * scr = lv_display_get_screen_active(disp);
     if(scr != NULL) {
         LV_LOG_INFO("EVE5: deferred screen invalidate (post-GC retry)");
+        drvr->redraw_pending = true;
         lv_obj_invalidate(scr);
     }
 }

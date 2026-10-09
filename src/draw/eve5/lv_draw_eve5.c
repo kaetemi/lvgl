@@ -1715,10 +1715,6 @@ static void eve5_render_layer_nort(lv_draw_eve5_unit_t * u, lv_layer_t * layer)
     EVE5_LOG("EVE5 NORT: === RENDER START layer=%p %dx%d ===",
              (void *)layer, (int)sw, (int)sh);
 
-    /* Scope the alloc-failure counter to this frame; checked after Update
-     * to decide whether to retry via screen invalidate. */
-    EVE_GpuAlloc_ClearAllocFailedCount(u->allocator);
-
     /* Reset alpha tracking — the per-task draw functions still call the
      * track_alpha_* helpers, but no alpha pass consumes them. Keep state
      * hygienic across frames. */
@@ -1810,9 +1806,15 @@ static void eve5_render_layer_nort(lv_draw_eve5_unit_t * u, lv_layer_t * layer)
      * might fit next frame. Defer to LV_EVENT_REFR_READY; lv_obj_invalidate
      * during rendering trips the rendering_in_progress assert. */
     if(gc_freed_any && EVE_GpuAlloc_GetAllocFailedCount(u->allocator) > 0) {
-        LV_LOG_INFO("EVE5 NORT: %u alloc failures + GC freed memory — requesting screen invalidate",
-                    (unsigned)EVE_GpuAlloc_GetAllocFailedCount(u->allocator));
-        lv_eve5_request_invalidate(disp);
+        uint32_t failures = EVE_GpuAlloc_GetAllocFailedCount(u->allocator);
+        if(lv_eve5_request_alloc_retry(disp, failures)) {
+            LV_LOG_INFO("EVE5 NORT: %u alloc failures + GC freed memory — requesting screen invalidate",
+                        (unsigned)failures);
+        }
+        else {
+            LV_LOG_WARN("EVE5 NORT: %u alloc failures remain; stopping automatic retry without progress",
+                        (unsigned)failures);
+        }
     }
 
     /* Bookkeeping mirrors lv_draw_eve5_hal_finish_layer */

@@ -249,6 +249,20 @@ void lv_eve5_swapchain_presented(lv_display_t * disp);
 void lv_eve5_request_invalidate(lv_display_t * disp);
 
 /**
+ * Whether a driver-requested recovery refresh still needs rendering.
+ * Remains true after REFR_READY issues the invalidation, until rendering
+ * starts. Ordinary widget or animation invalidations are not included.
+ */
+bool lv_eve5_has_pending_refresh(lv_display_t * disp);
+
+/**
+ * Request a post-GC redraw for failed allocations. Allows the first retry,
+ * then requires the failure count to decrease on subsequent recovery frames.
+ * An ordinary refresh starts a new sequence. Returns whether retry was queued.
+ */
+bool lv_eve5_request_alloc_retry(lv_display_t * disp, uint32_t failures);
+
+/**
  * Reset the coprocessor narrowly after an isolated asset-load fault, and
  * invalidate cached EVE5 state that no longer matches hardware.
  *
