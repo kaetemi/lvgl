@@ -1510,6 +1510,11 @@ void lv_draw_eve5_sw_draw_task_texture(lv_draw_eve5_unit_t * u, const lv_draw_ta
 void lv_draw_eve5_sw_alpha_draw_task_texture(lv_draw_eve5_unit_t * u, const lv_draw_task_t * t);
 void lv_draw_eve5_sw_release_textures(lv_draw_eve5_unit_t * u);
 #endif
+#if LV_DRAW_EVE5_SW_VECTOR && defined(EVE_SUPPORT_RENDERTARGET)
+bool lv_draw_eve5_sw_vector_needs_backdrop(const lv_draw_task_t * t);
+bool lv_draw_eve5_sw_vector_blend(lv_draw_eve5_unit_t * u, const lv_draw_task_t * t,
+                                  EVE_GpuHandle backdrop, bool opaque);
+#endif
 #if LV_DRAW_EVE5_SW_OUTLINE_FONT
 bool lv_draw_eve5_label_needs_sw(const lv_draw_task_t * t);
 #endif

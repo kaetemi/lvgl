@@ -1118,9 +1118,10 @@ static void eve5_render_layer(lv_draw_eve5_unit_t * u, lv_layer_t * layer)
     bool reduced_luminance = reduced && reduction != LV_DRAW_EVE5_REDUCE_QUANTIZE;
 
     /* Slice-boundary splitting: scan for tasks that require splitting the render
-     * queue into slices. Two kinds:
+     * queue into slices:
      * - Blend modes (IMAGE/LAYER with non-standard blend): isolated render + per-channel blend math
      * - Blur: mipmap downsample chain on the accumulated content
+     * - Vector blend modes: software rasterization onto the accumulated content
      * Each such task becomes a slice boundary. Between boundaries, the display
      * list budget may split the tasks further (eve5_render_range). */
     lv_draw_task_t * blend_task = eve5_find_blend_task(layer->draw_task_head, NULL, reduced_luminance);
@@ -1348,6 +1349,17 @@ static void eve5_render_layer(lv_draw_eve5_unit_t * u, lv_layer_t * layer)
                 }
             }
 
+#if LV_DRAW_EVE5_SW_VECTOR
+            if(blend_task->type == LV_DRAW_TASK_TYPE_VECTOR) {
+                if(!lv_draw_eve5_sw_vector_blend(u, blend_task, prev, is_screen || !layer_has_alpha)) {
+                    LV_LOG_WARN("EVE5: Vector backdrop rendering failed");
+                }
+                blend_task->state = LV_DRAW_TASK_STATE_FINISHED;
+                cursor = blend_task->next;
+                continue;
+            }
+#endif
+
             /* Slice B: render the blend task in isolation */
             lv_draw_eve5_slice_t slice_iso;
             lv_memzero(&slice_iso, sizeof(slice_iso));
@@ -1542,6 +1554,9 @@ static lv_draw_task_t * eve5_find_blend_task(lv_draw_task_t * cursor, lv_draw_ta
         if(t->type == LV_DRAW_TASK_TYPE_BLUR) {
             return t;
         }
+#if LV_DRAW_EVE5_SW_VECTOR
+        if(lv_draw_eve5_sw_vector_needs_backdrop(t)) return t;
+#endif
         if(t->type == LV_DRAW_TASK_TYPE_IMAGE || t->type == LV_DRAW_TASK_TYPE_LAYER) {
             const lv_draw_image_dsc_t * dsc = t->draw_dsc;
             /* ADDITIVE is drawn inline with the hardware blend, which gives

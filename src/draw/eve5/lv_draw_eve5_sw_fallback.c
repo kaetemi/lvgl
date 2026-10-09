@@ -29,17 +29,111 @@
  * SW FALLBACK HELPERS
  **********************/
 
-#if LV_DRAW_EVE5_SW_VECTOR
-/**
- * Choose the software buffer area for a vector task. The software vector renderer adjusts the
- * initial task clip only by partial_y_offset, and paths cannot widen that clip. Start the buffer at
- * x = 0 so the clip and buffer coordinates agree.
- */
-static void eve5_sw_vector_area(const lv_draw_task_t * t, lv_area_t * area)
+/* Software tasks can decode images through the same HAL while they run. */
+static void sw_dispatch_layer(lv_layer_t * layer)
 {
-    *area = t->_real_area;
-    if(area->x1 > 0) area->x1 = 0;
+    lv_display_t * disp = lv_refr_get_disp_refreshing();
+#if LV_USE_OS
+    lv_eve5_hal_unlock(disp);
+#endif
+    while(layer->draw_task_head) {
+        lv_draw_dispatch_layer(disp, layer);
+        if(layer->draw_task_head) lv_draw_dispatch_wait_for_request();
+    }
+#if LV_USE_OS
+    lv_eve5_hal_lock(disp);
+#endif
 }
+
+#if LV_DRAW_EVE5_SW_VECTOR
+static void sw_add_vector_task(const lv_draw_task_t * t, lv_layer_t * layer, const lv_area_t * area)
+{
+    layer->buf_area = *area;
+    layer->_clip_area = t->clip_area;
+    layer->phy_clip_area = t->clip_area;
+    layer->partial_y_offset = area->y1;
+
+    /* Rendering consumes the paths. Transfer their ownership to the software task. */
+    lv_draw_vector_dsc_t * src_dsc = t->draw_dsc;
+    lv_draw_vector_dsc_t vector_dsc = *src_dsc;
+    vector_dsc.base.layer = layer;
+    vector_dsc.base.user_data = (void *)1;
+    src_dsc->task_list = NULL;
+    lv_draw_vector(&vector_dsc);
+}
+
+#ifdef EVE_SUPPORT_RENDERTARGET
+bool lv_draw_eve5_sw_vector_needs_backdrop(const lv_draw_task_t * t)
+{
+    if(t->type != LV_DRAW_TASK_TYPE_VECTOR) return false;
+    const lv_draw_vector_dsc_t * dsc = t->draw_dsc;
+    if(dsc->task_list == NULL) return false;
+    const lv_draw_vector_subtask_t * subtask;
+    LV_LL_READ(dsc->task_list, subtask) {
+        if(subtask->path != NULL && subtask->ctx.blend_mode != LV_VECTOR_BLEND_SRC_OVER) return true;
+    }
+    return false;
+}
+
+/**
+ * Render onto the preceding slice's premultiplied ARGB8 pixels. Flattening a vector task onto
+ * transparency loses its destination-dependent blend modes. Only these tasks need a readback;
+ * ordinary source-over vectors can still render to a transparent texture.
+ */
+bool lv_draw_eve5_sw_vector_blend(lv_draw_eve5_unit_t * u, const lv_draw_task_t * t,
+                                  EVE_GpuHandle backdrop, bool opaque)
+{
+    const lv_layer_t * layer = t->target_layer;
+    lv_area_t area;
+    if(!lv_area_intersect(&area, &t->_real_area, &t->clip_area) ||
+       !lv_area_intersect(&area, &area, &layer->buf_area)) return true;
+
+    uint32_t addr = EVE_GpuAlloc_Get(u->allocator, backdrop);
+    if(addr == GA_INVALID) return false;
+    int32_t w = lv_area_get_width(&area);
+    int32_t h = lv_area_get_height(&area);
+    uint32_t stride = (uint32_t)w * 4;
+    uint32_t size = stride * (uint32_t)h;
+    uint8_t * pixels = lv_malloc(size);
+    if(pixels == NULL) return false;
+
+    /* The slice writer has queued GRAPHICSFINISH. Complete it before reading or overwriting RAM_G. */
+    if(!EVE_Cmd_waitFlush(u->hal)) {
+        lv_free(pixels);
+        return false;
+    }
+    uint32_t gpu_stride = (uint32_t)ALIGN_UP(lv_area_get_width(&layer->buf_area), 16) * 4;
+    addr += (uint32_t)(area.y1 - layer->buf_area.y1) * gpu_stride + (uint32_t)(area.x1 - layer->buf_area.x1) * 4;
+    for(int32_t y = 0; y < h; y++) {
+        EVE_Hal_rdMem(u->hal, pixels + (uint32_t)y * stride, addr + (uint32_t)y * gpu_stride, stride);
+    }
+    lv_draw_eve5_stats.downloads++;
+    lv_draw_eve5_stats.download_bytes += size;
+
+    /* Screen/opaque layers do not recover the hardware blend's alpha channel. */
+    if(opaque) {
+        for(uint32_t i = 3; i < size; i += 4) pixels[i] = 255;
+    }
+
+    lv_draw_buf_t buf;
+    lv_draw_buf_init(&buf, w, h, LV_COLOR_FORMAT_ARGB8888, stride, pixels, size);
+    lv_layer_t sw_layer;
+    lv_layer_init(&sw_layer);
+    sw_layer.opa = t->opa;
+    sw_layer.draw_buf = &buf;
+    sw_layer.color_format = LV_COLOR_FORMAT_ARGB8888;
+    sw_add_vector_task(t, &sw_layer, &area);
+    sw_dispatch_layer(&sw_layer);
+
+    for(int32_t y = 0; y < h; y++) {
+        EVE_Hal_wrMem(u->hal, addr + (uint32_t)y * gpu_stride, pixels + (uint32_t)y * stride, stride);
+    }
+    EVE_Hal_requestFenceBeforeSwap(u->hal);
+    lv_draw_eve5_count_upload(size);
+    lv_free(pixels);
+    return true;
+}
+#endif /* EVE_SUPPORT_RENDERTARGET */
 #endif
 
 /**
@@ -260,27 +354,7 @@ uint8_t * lv_draw_eve5_sw_render_to_buffer(lv_draw_eve5_unit_t * u,
 
 #if LV_DRAW_EVE5_SW_VECTOR
         case LV_DRAW_TASK_TYPE_VECTOR: {
-                /*
-                 * Vector paths use screen coordinates, so place the layer in the same coordinate
-                 * system (see eve5_sw_vector_area).
-                 */
-                eve5_sw_vector_area(t, &temp_layer.buf_area);
-                temp_layer._clip_area = t->clip_area;
-                temp_layer.phy_clip_area = t->clip_area;
-                temp_layer.partial_y_offset = temp_layer.buf_area.y1;
-
-                /*
-                 * Transfer ownership of the vector task list to the software task. Rendering
-                 * consumes and destroys the list, so it can be rendered only once.
-                 */
-                lv_draw_vector_dsc_t * src_dsc = t->draw_dsc;
-                lv_draw_vector_dsc_t vector_dsc;
-                lv_memcpy(&vector_dsc, src_dsc, sizeof(vector_dsc));
-                vector_dsc.base.layer = &temp_layer;
-                vector_dsc.base.user_data = (void *)1;
-                src_dsc->task_list = NULL;
-
-                lv_draw_vector(&vector_dsc);
+                sw_add_vector_task(t, &temp_layer, &t->_real_area);
                 render_ok = true;
                 break;
             }
@@ -296,22 +370,7 @@ uint8_t * lv_draw_eve5_sw_render_to_buffer(lv_draw_eve5_unit_t * u,
         return NULL;
     }
 
-    /* Dispatch to SW renderer.
-     * Unlock HAL mutex while SW threads run, as they may trigger image
-     * decoders or filesystem access that needs the HAL mutex. */
-    lv_display_t * disp = lv_refr_get_disp_refreshing();
-#if LV_USE_OS
-    lv_eve5_hal_unlock(disp);
-#endif
-    while(temp_layer.draw_task_head) {
-        lv_draw_dispatch_layer(disp, &temp_layer);
-        if(temp_layer.draw_task_head) {
-            lv_draw_dispatch_wait_for_request();
-        }
-    }
-#if LV_USE_OS
-    lv_eve5_hal_lock(disp);
-#endif
+    sw_dispatch_layer(&temp_layer);
 
     return buf_data;
 }
@@ -419,7 +478,6 @@ static const lv_draw_eve5_sw_texture_t * sw_task_texture(lv_draw_eve5_unit_t * u
     bool premultiplied = false;
 #if LV_DRAW_EVE5_SW_VECTOR
     if(t->type == LV_DRAW_TASK_TYPE_VECTOR) {
-        eve5_sw_vector_area(t, &area);
         premultiplied = true;
     }
 #endif
