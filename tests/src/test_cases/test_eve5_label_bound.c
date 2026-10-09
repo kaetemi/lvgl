@@ -1,0 +1,213 @@
+#if LV_BUILD_TEST
+#include "../lvgl.h"
+#include "unity/unity.h"
+#include "src/drivers/display/eve5/lv_eve5.h"
+#include "src/drivers/display/eve5/lv_eve5_rom_font.h"
+#include "src/draw/eve5/lv_draw_eve5_private.h"
+
+static lv_draw_eve5_unit_t * unit;
+static lv_font_t * rom_font;
+static lv_layer_t layer;
+static lv_draw_task_t task;
+static lv_draw_label_dsc_t label;
+static char options[315];
+static unsigned metric_calls;
+static unsigned bitmap_calls;
+
+static bool count_metrics(const lv_font_t * font, lv_font_glyph_dsc_t * glyph,
+                          uint32_t letter, uint32_t next)
+{
+    metric_calls++;
+    return lv_font_get_glyph_dsc_fmt_txt(font, glyph, letter, next);
+}
+
+static LV_IMAGE_DSC_CONST void * count_bitmaps(lv_font_glyph_dsc_t * glyph, lv_draw_buf_t * buf)
+{
+    LV_UNUSED(glyph);
+    LV_UNUSED(buf);
+    bitmap_calls++;
+    return NULL;
+}
+
+void setUp(void)
+{
+    unit = lv_malloc_zeroed(sizeof(*unit));
+    TEST_ASSERT_NOT_NULL(unit);
+    unit->hal = lv_eve5_get_hal(lv_display_get_default());
+    unit->allocator = lv_eve5_get_allocator(lv_display_get_default());
+    lv_draw_eve5_handle_pool_init(unit);
+    lv_draw_eve5_rom_font_init(unit);
+    rom_font = NULL;
+    lv_memzero(&layer, sizeof(layer));
+    layer.buf_area = (lv_area_t) {0, 0, 799, 479};
+    lv_memzero(&task, sizeof(task));
+    task.type = LV_DRAW_TASK_TYPE_LABEL;
+    task.preferred_draw_unit_id = DRAW_UNIT_ID_EVE5;
+    task.state = LV_DRAW_TASK_STATE_QUEUED;
+    task.target_layer = &layer;
+    task.draw_dsc = &label;
+    task.area = (lv_area_t) {42, -415, 81, 1584};
+    task.clip_area = (lv_area_t) {42, 200, 81, 249};
+    layer.draw_task_head = &task;
+    lv_draw_label_dsc_init(&label);
+    label.font = &lv_font_montserrat_16;
+    label.line_space = 16;
+    for(unsigned i = 0; i < 63; i++) lv_memcpy(options + 5 * i, "0@Tg\n", 5);
+    options[314] = '\0';
+    label.text = options;
+}
+
+void tearDown(void)
+{
+    /* No test list is submitted to scanout. Retire it before freeing fonts. */
+    lv_draw_eve5_dl_start(unit);
+    TEST_ASSERT_TRUE(EVE_Cmd_waitFlush(unit->hal));
+    lv_draw_eve5_font_free_all(unit);
+    lv_eve5_rom_font_destroy(rom_font);
+    lv_free(unit);
+}
+
+/* Check real coprocessor expansion for RGB and both alpha paths, rather than
+ * comparing the estimator with a second copy of its line-count algorithm. */
+static void assert_render_bound(void)
+{
+    uint32_t bound = lv_draw_eve5_label_dl_bound(&task, true);
+    EVE_HalContext * phost = unit->hal;
+    for(unsigned pass = 0; pass < 3; pass++) {
+        lv_draw_eve5_dl_start(unit);
+        if(pass == 0) lv_draw_eve5_hal_draw_label(unit, &task);
+        else lv_draw_eve5_alpha_draw_label(unit, &task, pass == 2);
+        TEST_ASSERT_TRUE(EVE_Cmd_waitFlush(phost));
+        TEST_ASSERT_LESS_OR_EQUAL_UINT32(bound, EVE_Hal_rd32(phost, REG_CMD_DL) / 4);
+    }
+}
+
+void test_clipped_label_keeps_following_tasks(void)
+{
+    TEST_ASSERT_GREATER_THAN_UINT32(2048, lv_draw_eve5_label_dl_bound(&task, false));
+    TEST_ASSERT_LESS_THAN_UINT32(256, lv_draw_eve5_label_dl_bound(&task, true));
+    assert_render_bound();
+
+    lv_draw_fill_dsc_t fill;
+    lv_draw_fill_dsc_init(&fill);
+    lv_draw_task_t next = task;
+    next.type = LV_DRAW_TASK_TYPE_FILL;
+    next.draw_dsc = &fill;
+    next.area = next.clip_area = (lv_area_t) {100, 100, 119, 119};
+    task.next = &next;
+    TEST_ASSERT_TRUE(lv_draw_eve5_range_fits_dl(unit, &task, NULL, EVE5_DL_FINISH_NORT));
+    lv_draw_eve5_slice_t slice = {0};
+    lv_draw_eve5_budget_t budget = {0};
+    budget.reserve = EVE5_DL_FINISH_NORT;
+    budget.can_split = true;
+    lv_draw_eve5_dl_start(unit);
+    TEST_ASSERT_EQUAL_INT(2, lv_draw_eve5_render_tasks(unit, &layer, true, true, &slice, &budget));
+    TEST_ASSERT_NULL(budget.stop);
+    TEST_ASSERT_EQUAL(LV_DRAW_TASK_STATE_FINISHED, next.state);
+    task.next = NULL;
+}
+
+void test_clipped_label_wrapping_offsets_and_edges(void)
+{
+    label.text = "One two three four five six seven eight nine ten\n"
+                 "One two three four five six seven eight nine ten\n"
+                 "One two three four five six seven eight nine ten";
+    const lv_text_flag_t flags[] = {LV_TEXT_FLAG_NONE, LV_TEXT_FLAG_EXPAND, LV_TEXT_FLAG_FIT};
+    const int32_t offsets[] = {-19, 0, 17, 300};
+    label.line_space = 3;
+    for(unsigned f = 0; f < 3; f++) {
+        label.flag = flags[f];
+        for(unsigned o = 0; o < 4; o++) {
+            label.ofs_y = offsets[o];
+            for(int y = 29; y <= 31; y++) {
+                task.area = (lv_area_t) {20, -20, 91, 500};
+                task.clip_area = (lv_area_t) {30, y, 70, y + 20};
+                assert_render_bound();
+            }
+        }
+    }
+}
+
+void test_clipped_label_decor_recolor_missing_and_rotated_glyphs(void)
+{
+    label.text = "#00ff00 offscreen text\nmore text\nvisible \xEF\xBF\xBF text#\nlast line";
+    label.flag = LV_TEXT_FLAG_EXPAND | LV_TEXT_FLAG_RECOLOR;
+    label.decor = LV_TEXT_DECOR_UNDERLINE | LV_TEXT_DECOR_STRIKETHROUGH;
+    label.sel_start = 0;
+    label.sel_end = 100;
+    label.line_space = 3;
+    label.opa = 129;
+    task.area = (lv_area_t) {20, -38, 300, 400};
+    task.clip_area = (lv_area_t) {30, 0, 200, 20};
+    assert_render_bound();
+    label.rotation = 450;
+    assert_render_bound();
+}
+
+void test_clipped_label_preserves_hint_and_explicit_length(void)
+{
+    label.flag = LV_TEXT_FLAG_EXPAND;
+    lv_draw_label_hint_t hint = {.line_start = 50, .y = 320, .coord_y = -415};
+    label.hint = &hint;
+    lv_draw_label_hint_t saved = hint;
+    uint32_t bound = lv_draw_eve5_label_dl_bound(&task, true);
+    TEST_ASSERT_EQUAL_MEMORY(&saved, &hint, sizeof(hint));
+    TEST_ASSERT_LESS_THAN_UINT32(256, bound);
+    assert_render_bound();
+    hint = (lv_draw_label_hint_t) {.line_start = 95, .y = 608, .coord_y = -415};
+    label.text_length = 100;
+    TEST_ASSERT_EQUAL_UINT32(lv_draw_eve5_label_dl_bound(&task, false),
+                            lv_draw_eve5_label_dl_bound(&task, true));
+    assert_render_bound();
+    label.hint = NULL;
+    label.text_length = 20;
+    assert_render_bound();
+}
+
+void test_clipped_label_rom_and_direct_cmdtext(void)
+{
+    rom_font = lv_eve5_rom_font_create(unit->hal, 26);
+    TEST_ASSERT_NOT_NULL(rom_font);
+    label.font = rom_font;
+    label.flag = LV_TEXT_FLAG_EXPAND;
+    TEST_ASSERT_LESS_THAN_UINT32(lv_draw_eve5_label_dl_bound(&task, false),
+                                lv_draw_eve5_label_dl_bound(&task, true));
+    assert_render_bound();
+
+    /* A metrics-only font takes the heuristic whole-string CMD_TEXT path. */
+    lv_font_t metrics = lv_font_montserrat_16;
+    metrics.get_glyph_bitmap = NULL;
+    label.font = &metrics;
+    label.text = "one\ntwo\nthree\nfour";
+    TEST_ASSERT_EQUAL_UINT32(lv_draw_eve5_label_dl_bound(&task, false),
+                            lv_draw_eve5_label_dl_bound(&task, true));
+    assert_render_bound();
+}
+
+void test_label_bound_refines_only_when_needed_without_loading_bitmaps(void)
+{
+    lv_font_t font = lv_font_montserrat_16;
+    font.get_glyph_dsc = count_metrics;
+    font.get_glyph_bitmap = count_bitmaps;
+    label.font = &font;
+    options[4] = '\0';
+    metric_calls = bitmap_calls = 0;
+    uint32_t cheap = lv_draw_eve5_label_dl_bound(&task, false);
+    unsigned cheap_calls = metric_calls;
+    TEST_ASSERT_LESS_THAN_UINT32(2048, cheap);
+    metric_calls = 0;
+    TEST_ASSERT_TRUE(lv_draw_eve5_range_fits_dl(unit, &task, NULL, 0));
+    TEST_ASSERT_EQUAL_UINT(cheap_calls, metric_calls);
+    TEST_ASSERT_EQUAL_UINT(0, bitmap_calls);
+
+    options[4] = '\n';
+    metric_calls = 0;
+    cheap = lv_draw_eve5_label_dl_bound(&task, false);
+    cheap_calls = metric_calls;
+    TEST_ASSERT_GREATER_THAN_UINT32(2048, cheap);
+    metric_calls = 0;
+    TEST_ASSERT_TRUE(lv_draw_eve5_range_fits_dl(unit, &task, NULL, 0));
+    TEST_ASSERT_GREATER_THAN_UINT(cheap_calls, metric_calls);
+    TEST_ASSERT_EQUAL_UINT(0, bitmap_calls);
+}
+#endif

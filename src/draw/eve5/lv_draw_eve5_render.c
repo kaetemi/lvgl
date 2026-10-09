@@ -221,6 +221,11 @@ int lv_draw_eve5_render_tasks(lv_draw_eve5_unit_t * u, lv_layer_t * layer, bool 
         uint32_t rgb = deferred_mask ? 0 : bound.rgb;
         uint32_t after = deferred_mask ? bound.rgb : (budget->alpha_pass ? bound.alpha : 0);
         if(phost->DlEntries + rgb + budget->reserve + after > dl_budget) {
+            lv_draw_eve5_task_dl_bound_refine(t, &bound);
+            rgb = deferred_mask ? 0 : bound.rgb;
+            after = deferred_mask ? bound.rgb : (budget->alpha_pass ? bound.alpha : 0);
+        }
+        if(phost->DlEntries + rgb + budget->reserve + after > dl_budget) {
             if(!EVE_Hal_supportRenderTarget(phost)) {
                 /* Coprocessor commands contribute worst-case expansions to
                  * DlEntries. On NORT there is no intermediate target to split
@@ -679,6 +684,10 @@ EVE_GpuHandle lv_draw_eve5_render_alpha_to_l8(lv_draw_eve5_unit_t * u, lv_layer_
             lv_draw_eve5_task_dl_bound(u, t, slice->end, &bound);
             /* The pair is drawn here as two tasks, within the pair's bound */
             if(t->type == LV_DRAW_TASK_TYPE_FILL) merged = lv_draw_eve5_fill_matching_border(t, slice->end);
+            if(phost->DlEntries + bound.rgb + EVE5_DL_FINISH_L8 > dl_budget
+               || rgb_total + bound.rgb > dl_budget) {
+                lv_draw_eve5_task_dl_bound_refine(t, &bound);
+            }
             if(any && (phost->DlEntries + bound.rgb + EVE5_DL_FINISH_L8 > dl_budget
                        || rgb_total + bound.rgb > dl_budget)) {
                 EVE5_LOG("EVE5: Display list budget: L8 alpha slice ends before task %p", (void *)t);

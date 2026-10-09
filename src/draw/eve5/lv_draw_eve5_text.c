@@ -119,6 +119,14 @@ static bool is_plain_fmt_txt(const lv_font_t * font)
     return font_dsc->bitmap_format == LV_FONT_FMT_TXT_PLAIN && !font_dsc->are_glyphs_dynamic_loaded;
 }
 
+static bool font_uses_bitmap_glyphs(const lv_font_t * font)
+{
+    if(font == NULL || font->get_glyph_bitmap == NULL) return false;
+    if(!is_plain_fmt_txt(font)) return true;
+    const lv_font_fmt_txt_dsc_t * font_dsc = font->dsc;
+    return is_bpp_supported((uint8_t)font_dsc->bpp);
+}
+
 /**
  * Upload glyph bitmap to RAM_G with EVE-aligned stride.
  * Handles stride differences between LVGL font formats and EVE requirements.
@@ -1281,14 +1289,70 @@ static void alpha_glyph_cb(lv_draw_task_t * t, lv_draw_glyph_dsc_t * glyph_dsc,
 #define DL_GLYPH_PLACEHOLDER 43 /* Box of a glyph the fonts don't have (draw_glyph_placeholder) */
 #define DL_CMDTEXT_COLOR    2   /* rom_line_set_color */
 
-uint32_t lv_draw_eve5_label_dl_bound(const lv_draw_task_t * t)
+/* Count whole lines that the renderer visits, including partially clipped
+ * lines and their decorations. Match lv_draw_label_iterate_characters's
+ * wrapping and vertical cutoffs without its glyph buffers, bidi allocation
+ * or bitmap callbacks. EXPAND/FIT only scan for newline bytes. Do not modify
+ * the renderer's layout hint during estimation. */
+static bool label_clipped_text(const lv_draw_task_t * t, uint32_t * start, uint32_t * bytes)
+{
+    const lv_draw_label_dsc_t * dsc = t->draw_dsc;
+    /* The heuristic CMD_TEXT fallback emits the entire string, even when
+     * clipped. ROM/asset fonts use the LVGL iterator and can be refined. */
+    if(!font_is_cmdtext_font(dsc->font) && !font_uses_bitmap_glyphs(dsc->font)) return false;
+
+    int32_t font_height = lv_font_get_line_height(dsc->font);
+    int32_t line_height = font_height + dsc->line_space;
+    if(line_height <= 0) return false;
+    /* The iterator applies a finite text_length after a cached hint, rather
+     * than subtracting its offset. Preserve the original bound in that case. */
+    if(dsc->hint && dsc->hint->line_start >= 0 && dsc->text_length != LV_TEXT_LEN_MAX) return false;
+
+    *start = 0;
+    *bytes = 0;
+    lv_area_t clipped;
+    if(!lv_area_intersect(&clipped, &t->area, &t->clip_area)) return true;
+
+    lv_text_attributes_t attributes = {0};
+    attributes.letter_space = dsc->letter_space;
+    attributes.text_flags = dsc->flag;
+    attributes.max_width = lv_area_get_width(&t->area);
+
+    int64_t y = (int64_t)t->area.y1 + dsc->ofs_y;
+    uint32_t remaining = dsc->text_length;
+    uint32_t offset = 0;
+    bool visible = false;
+    while(remaining && dsc->text[offset] != '\0') {
+        uint32_t length = lv_text_get_next_line(dsc->text + offset, remaining, dsc->font, NULL, &attributes);
+        if(length == 0 || length > remaining) return false;
+        if(!visible && y + font_height >= t->clip_area.y1) {
+            *start = offset;
+            visible = true;
+        }
+        if(visible) *bytes += length;
+        offset += length;
+        remaining -= length;
+        y += line_height;
+        /* The iterator visits its first unskipped line before testing the
+         * bottom edge. Keep it even when ofs_y moves it below the clip. */
+        if(visible && y > t->clip_area.y2) break;
+    }
+    return true;
+}
+
+uint32_t lv_draw_eve5_label_dl_bound(const lv_draw_task_t * t, bool clipped)
 {
     const lv_draw_label_dsc_t * dsc = t->draw_dsc;
     if(dsc->text == NULL) return 0;
 
-    /* Each character is at least one byte */
+    uint32_t start = 0;
     uint32_t bytes = 0;
-    while(bytes < dsc->text_length && dsc->text[bytes] != '\0') bytes++;
+    if(!clipped || !label_clipped_text(t, &start, &bytes)) {
+        start = 0;
+        bytes = 0;
+        /* Each character is at least one byte */
+        while(bytes < dsc->text_length && dsc->text[bytes] != '\0') bytes++;
+    }
 
     /* Budget for the most expensive glyph among all fonts that fallback resolution may select. */
     uint32_t glyph = (dsc->rotation % 3600 != 0) ? DL_GLYPH_XFORM : DL_GLYPH;
@@ -1315,7 +1379,7 @@ uint32_t lv_draw_eve5_label_dl_bound(const lv_draw_task_t * t)
     if(dsc->font != NULL) {
         uint32_t i = 0;
         while(i < bytes) {
-            uint32_t letter = lv_text_encoded_next(dsc->text, &i);
+            uint32_t letter = lv_text_encoded_next(dsc->text + start, &i);
             /* Line breaks and markers are not drawn */
             if(letter < 0x20 || lv_text_is_marker(letter)) continue;
             lv_font_glyph_dsc_t g;
@@ -1348,16 +1412,7 @@ void lv_draw_eve5_hal_draw_label(lv_draw_eve5_unit_t * u, lv_draw_task_t * t)
         return;
     }
 
-    bool use_bitmap_font = false;
-    if(dsc->font && dsc->font->get_glyph_bitmap != NULL) {
-        if(is_plain_fmt_txt(dsc->font)) {
-            const lv_font_fmt_txt_dsc_t * font_dsc = dsc->font->dsc;
-            use_bitmap_font = is_bpp_supported((uint8_t)font_dsc->bpp);
-        }
-        else {
-            use_bitmap_font = true;
-        }
-    }
+    bool use_bitmap_font = font_uses_bitmap_glyphs(dsc->font);
 
     lv_draw_eve5_set_scissor(u, &t->clip_area, &layer->buf_area);
 
@@ -1497,16 +1552,7 @@ void lv_draw_eve5_alpha_draw_label(lv_draw_eve5_unit_t * u, lv_draw_task_t * t, 
         return;
     }
 
-    bool use_bitmap_font = false;
-    if(dsc->font && dsc->font->get_glyph_bitmap != NULL) {
-        if(is_plain_fmt_txt(dsc->font)) {
-            const lv_font_fmt_txt_dsc_t * font_dsc = dsc->font->dsc;
-            use_bitmap_font = is_bpp_supported((uint8_t)font_dsc->bpp);
-        }
-        else {
-            use_bitmap_font = true;
-        }
-    }
+    bool use_bitmap_font = font_uses_bitmap_glyphs(dsc->font);
 
     if(!use_bitmap_font) {
         lv_draw_eve5_set_scissor(u, &t->clip_area, &layer->buf_area);

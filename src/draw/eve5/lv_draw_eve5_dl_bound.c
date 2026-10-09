@@ -133,7 +133,7 @@ void lv_draw_eve5_task_dl_bound(lv_draw_eve5_unit_t * u, lv_draw_task_t * t, con
                 bound->alpha = DL_SW_TASK_ALPHA;
                 break;
             }
-            bound->rgb = lv_draw_eve5_label_dl_bound(t);
+            bound->rgb = lv_draw_eve5_label_dl_bound(t, false);
             bound->alpha = bound->rgb;
             break;
 
@@ -182,6 +182,15 @@ void lv_draw_eve5_task_dl_bound(lv_draw_eve5_unit_t * u, lv_draw_task_t * t, con
     }
 }
 
+/* Only called when the cheap bound would stop or split a display list. */
+void lv_draw_eve5_task_dl_bound_refine(lv_draw_task_t * t, lv_draw_eve5_dl_bound_t * bound)
+{
+    if(t->type != LV_DRAW_TASK_TYPE_LABEL || LV_DRAW_EVE5_SW_LABEL || lv_draw_eve5_label_sw_texture(t)) return;
+    uint32_t clipped = lv_draw_eve5_label_dl_bound(t, true);
+    bound->rgb = LV_MIN(bound->rgb, clipped);
+    bound->alpha = LV_MIN(bound->alpha, clipped);
+}
+
 /**
  * Whether the queued EVE5 tasks in [start, end) fit one display list by their
  * bounds alone, with `overhead` entries around them. For targets that cannot
@@ -203,6 +212,7 @@ bool lv_draw_eve5_range_fits_dl(lv_draw_eve5_unit_t * u, lv_draw_task_t * start,
         lv_draw_eve5_dl_bound_t bound;
         lv_draw_eve5_task_dl_bound(u, t, end, &bound);
         if(t->type == LV_DRAW_TASK_TYPE_FILL) merged = lv_draw_eve5_fill_matching_border(t, end);
+        if(total + bound.rgb > budget) lv_draw_eve5_task_dl_bound_refine(t, &bound);
         total += bound.rgb;
         if(total > budget) return false;
     }

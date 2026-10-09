@@ -1375,10 +1375,11 @@ lv_draw_task_t * lv_draw_eve5_fill_matching_border(lv_draw_task_t * t, const lv_
 uint32_t lv_draw_eve5_dl_budget(EVE_HalContext * phost);
 void lv_draw_eve5_task_dl_bound(lv_draw_eve5_unit_t * u, lv_draw_task_t * t, const lv_draw_task_t * end,
                                 lv_draw_eve5_dl_bound_t * bound);
+void lv_draw_eve5_task_dl_bound_refine(lv_draw_task_t * t, lv_draw_eve5_dl_bound_t * bound);
 bool lv_draw_eve5_range_fits_dl(lv_draw_eve5_unit_t * u, lv_draw_task_t * start, const lv_draw_task_t * end,
                                 uint32_t overhead);
 void lv_draw_eve5_line_dl_bound(const lv_draw_task_t * t, lv_draw_eve5_dl_bound_t * bound);
-uint32_t lv_draw_eve5_label_dl_bound(const lv_draw_task_t * t);
+uint32_t lv_draw_eve5_label_dl_bound(const lv_draw_task_t * t, bool clipped);
 void lv_draw_eve5_opaque_prepass(lv_draw_eve5_unit_t * u, lv_layer_t * layer, const lv_draw_eve5_slice_t * slice);
 void lv_draw_eve5_alpha_pass(lv_draw_eve5_unit_t * u, lv_layer_t * layer, const lv_draw_eve5_slice_t * slice);
 bool lv_draw_eve5_is_fully_inside_opaque(lv_draw_eve5_unit_t * u, const lv_area_t * task_area,
