@@ -48,10 +48,56 @@ static void convert_argb8_to_rgb565a8(const uint8_t * src, uint8_t * rgb_dst, ui
 #endif
 static void unpremultiply_argb8(uint8_t * row, uint32_t w);
 static void convert_rgb565_to_swapped(const uint8_t * src, uint8_t * dst, uint32_t w);
+static bool download_palette(lv_draw_eve5_unit_t * u, const lv_eve5_vram_res_t * vr,
+                              uint8_t * dst, uint32_t entries);
 
 /**********************
  * FORMAT CONVERSIONS
  **********************/
+
+/* Preserve the indices on CPU migration and expand the GPU's palette precision
+ * back to LVGL's BGRA entries. This also handles palettes from hardware decoding. */
+static bool download_palette(lv_draw_eve5_unit_t * u, const lv_eve5_vram_res_t * vr,
+                              uint8_t * dst, uint32_t entries)
+{
+    uint32_t addr = EVE_GpuAlloc_Get(u->allocator, vr->gpu_handle) + vr->palette_offset;
+#if (EVE_SUPPORT_CHIPID >= EVE_BT820)
+    if(vr->eve_format == PALETTEDARGB8) {
+        if(vr->palette_offset == GA_INVALID) lv_memzero(dst, entries * 4);
+        else EVE_Hal_rdMem(u->hal, dst, addr, entries * 4);
+        return true;
+    }
+#endif
+#if (EVE_SUPPORT_CHIPID >= EVE_FT810) || defined(EVE_MULTI_GRAPHICS_TARGET)
+    if(vr->eve_format == PALETTED565 || vr->eve_format == PALETTED4444) {
+        uint8_t palette[256 * 2];
+        if(vr->palette_offset == GA_INVALID) {
+            lv_memzero(dst, entries * 4);
+            return true;
+        }
+        EVE_Hal_rdMem(u->hal, palette, addr, entries * 2);
+        for(uint32_t i = 0; i < entries; i++) {
+            uint16_t c = palette[2 * i] | ((uint16_t)palette[2 * i + 1] << 8);
+            if(vr->eve_format == PALETTED565) {
+                uint8_t r = (c >> 11) & 31, g = (c >> 5) & 63, b = c & 31;
+                dst[4 * i + 0] = (b << 3) | (b >> 2);
+                dst[4 * i + 1] = (g << 2) | (g >> 4);
+                dst[4 * i + 2] = (r << 3) | (r >> 2);
+                dst[4 * i + 3] = 255;
+            }
+            else {
+                for(uint32_t channel = 0; channel < 4; channel++)
+                    dst[4 * i + channel] = ((c >> (channel * 4)) & 15) * 17;
+            }
+        }
+        return true;
+    }
+#endif
+    LV_UNUSED(addr);
+    LV_UNUSED(dst);
+    LV_UNUSED(entries);
+    return false;
+}
 
 /** Convert RGB8 (BGR, 3 bpp) to XRGB8888 (BGRX, 4 bpp). Inserts alpha=0xFF. */
 /**
@@ -330,41 +376,31 @@ bool lv_draw_eve5_download_image(lv_draw_eve5_unit_t * u,
 
         case LV_COLOR_FORMAT_I1:
         case LV_COLOR_FORMAT_I2:
-        case LV_COLOR_FORMAT_I4: {
-                /* EVE stores PALETTEDARGB8 (8-bit indices + 256-entry palette).
-                 * LVGL layout: [palette N×ARGB8888][packed sub-byte index data].
-                 * PALETTEDARGB8 is BT820-only — pre-BT820 builds always fail here. */
-#if (EVE_SUPPORT_CHIPID >= EVE_BT820)
-                if(eve_fmt != PALETTEDARGB8)
-#endif
-                {
+        case LV_COLOR_FORMAT_I4:
+        case LV_COLOR_FORMAT_I8: {
+                /* EVE uses 8-bit indices. LVGL prefixes a BGRA palette and
+                 * packs I1/I2/I4 indices MSB-first, with its own row stride. */
+                uint32_t entries = LV_COLOR_INDEXED_PALETTE_SIZE(lv_cf);
+                if(!download_palette(u, vr, buf->data, entries)) {
                     LV_LOG_WARN("EVE5: Cannot download %d format to indexed I%d (no quantization)",
                                 eve_fmt, lv_color_format_get_bpp(lv_cf));
                     lv_free(rd.buf);
                     return false;
                 }
-                uint32_t src_palette_entries = LV_COLOR_INDEXED_PALETTE_SIZE(lv_cf);
-                uint32_t src_palette_bytes = src_palette_entries * sizeof(lv_color32_t);
                 uint32_t bpp = lv_color_format_get_bpp(lv_cf);
                 uint32_t pixels_per_byte = 8 / bpp;
 
-                /* Download palette */
-                if(vr->palette_offset != GA_INVALID) {
-                    uint32_t pal_addr = EVE_GpuAlloc_Get(u->allocator, vr->gpu_handle) + vr->palette_offset;
-                    EVE_Hal_rdMem(u->hal, buf->data, pal_addr, src_palette_bytes);
-                }
-                else {
-                    lv_memzero(buf->data, src_palette_bytes);
-                }
-
-                /* Pack 8-bit indices to sub-byte, MSB-first */
-                uint8_t * index_dst = buf->data + src_palette_bytes;
+                uint8_t * index_dst = buf->data + entries * sizeof(lv_color32_t);
                 uint32_t dst_row_bytes = (w * bpp + 7) / 8;
 
                 for(int32_t y = 0; y < h; y++) {
                     row_buf = row_reader_row(&rd, y);
 
                     uint8_t * dst_row = index_dst + y * lv_stride;
+                    if(bpp == 8) {
+                        lv_memcpy(dst_row, row_buf, w);
+                        continue;
+                    }
                     lv_memzero(dst_row, dst_row_bytes);
                     for(int32_t x = 0; x < w; x++) {
                         uint32_t byte_idx = x / pixels_per_byte;
@@ -372,36 +408,6 @@ bool lv_draw_eve5_download_image(lv_draw_eve5_unit_t * u,
                         uint8_t index_val = row_buf[x] & ((1u << bpp) - 1u);
                         dst_row[byte_idx] |= index_val << bit_shift;
                     }
-                }
-                break;
-            }
-
-        case LV_COLOR_FORMAT_I8: {
-                /* EVE stores PALETTEDARGB8 (8-bit indices + 256-entry palette).
-                 * LVGL layout: [palette 256×ARGB8888][8-bit index data].
-                 * PALETTEDARGB8 is BT820-only — pre-BT820 builds always fail here. */
-#if (EVE_SUPPORT_CHIPID >= EVE_BT820)
-                if(eve_fmt != PALETTEDARGB8)
-#endif
-                {
-                    LV_LOG_WARN("EVE5: Cannot download %d format to indexed I8 (no quantization)",
-                                eve_fmt);
-                    lv_free(rd.buf);
-                    return false;
-                }
-                uint32_t palette_bytes = 256 * sizeof(lv_color32_t);
-
-                if(vr->palette_offset != GA_INVALID) {
-                    uint32_t pal_addr = EVE_GpuAlloc_Get(u->allocator, vr->gpu_handle) + vr->palette_offset;
-                    EVE_Hal_rdMem(u->hal, buf->data, pal_addr, palette_bytes);
-                }
-                else {
-                    lv_memzero(buf->data, palette_bytes);
-                }
-
-                uint8_t * index_dst = buf->data + palette_bytes;
-                for(int32_t y = 0; y < h; y++) {
-                    lv_memcpy(index_dst + y * lv_stride, row_reader_row(&rd, y), w);
                 }
                 break;
             }

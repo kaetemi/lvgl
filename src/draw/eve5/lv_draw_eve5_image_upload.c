@@ -439,9 +439,17 @@ bool lv_draw_eve5_get_eve_format_info(EVE_HalContext *hal,
             }
             else
 #endif
+#if (EVE_SUPPORT_CHIPID >= EVE_FT810) || defined(EVE_MULTI_GRAPHICS_TARGET)
+            if(EVE_CHIPID >= EVE_FT810) {
+                /* Preserve alpha until the upload can inspect the palette. */
+                *eve_format = PALETTED4444;
+                *bits_per_pixel = 8;
+                *needs_conversion = true;
+            }
+            else
+#endif
             {
-                /* No PALETTEDARGB8 on earlier chips. Expand to ARGB4 inline
-                 * — palette is applied per pixel during upload. */
+                /* FT800/FT801 fallback: apply the palette during upload. */
                 *eve_format = ARGB4;
                 *bits_per_pixel = 16;
                 *needs_conversion = true;
@@ -575,6 +583,22 @@ lv_eve5_vram_res_t * lv_draw_eve5_upload_image_to_gpu_ex(lv_draw_eve5_unit_t * u
         return NULL;
     }
 
+#if (EVE_SUPPORT_CHIPID >= EVE_FT810) || defined(EVE_MULTI_GRAPHICS_TARGET)
+    if(LV_COLOR_FORMAT_IS_INDEXED(src_cf) && eve_format == PALETTED4444) {
+        /* Only inspect the palette on upload, not on cached draws. Even an
+         * alpha of 254 needs the alpha format; do not classify after rounding. */
+        uint32_t entries = LV_COLOR_INDEXED_PALETTE_SIZE(src_cf);
+        bool opaque = true;
+        for(uint32_t i = 0; i < entries; i++) {
+            if(src_buf[i * 4 + 3] != LV_OPA_COVER) {
+                opaque = false;
+                break;
+            }
+        }
+        if(opaque) eve_format = PALETTED565;
+    }
+#endif
+
     if(src_stride == 0) {
         uint32_t src_bpp = lv_color_format_get_bpp(src_cf);
         src_stride = (src_w * src_bpp + 7) / 8;
@@ -584,13 +608,17 @@ lv_eve5_vram_res_t * lv_draw_eve5_upload_image_to_gpu_ex(lv_draw_eve5_unit_t * u
     /* Rounded up for the row writer's last write */
     int32_t eve_size = ALIGN_UP(eve_stride * src_h, 4);
 
-    /* EVE PALETTEDARGB8 always uses 256-entry ARGB8888 palette (1024 bytes).
-     * On non-RT chips we expand indexed images to ARGB4 inline — the palette
-     * is consumed during conversion, so no GPU palette is needed. */
+    /* Keep BT820's full ARGB8888 palette. The 16-bit palettes need only the
+     * entries addressable by the source indices; even I1 is 4-byte aligned. */
     uint16_t palette_size = 0;
 #if (EVE_SUPPORT_CHIPID >= EVE_BT820)
     if(LV_COLOR_FORMAT_IS_INDEXED(src_cf) && eve_format == PALETTEDARGB8) {
         palette_size = 256 * sizeof(lv_color32_t);
+    }
+#endif
+#if (EVE_SUPPORT_CHIPID >= EVE_FT810) || defined(EVE_MULTI_GRAPHICS_TARGET)
+    if(LV_COLOR_FORMAT_IS_INDEXED(src_cf) && (eve_format == PALETTED565 || eve_format == PALETTED4444)) {
+        palette_size = LV_COLOR_INDEXED_PALETTE_SIZE(src_cf) * sizeof(uint16_t);
     }
 #endif
 
@@ -663,17 +691,30 @@ lv_eve5_vram_res_t * lv_draw_eve5_upload_image_to_gpu_ex(lv_draw_eve5_unit_t * u
                     const uint8_t * palette_data = src_buf;
                     const uint8_t * index_data = src_buf + src_palette_bytes;
 
+                    if(palette_size != 0) {
 #if (EVE_SUPPORT_CHIPID >= EVE_BT820)
-                    if(eve_format == PALETTEDARGB8) {
-                        /* BT820 path: write ARGB8888 palette to GPU + 8-bit indices. */
-                        EVE_Hal_wrMem(u->hal, base_addr, palette_data, src_palette_bytes);
-                        if(src_palette_entries < 256) {
-                            uint32_t pad_bytes = (256 - src_palette_entries) * sizeof(lv_color32_t);
-                            uint8_t * zeros = lv_calloc(1, pad_bytes);
-                            if(zeros) {
-                                EVE_Hal_wrMem(u->hal, base_addr + src_palette_bytes, zeros, pad_bytes);
-                                lv_free(zeros);
+                        if(eve_format == PALETTEDARGB8) {
+                            EVE_Hal_wrMem(u->hal, base_addr, palette_data, src_palette_bytes);
+                            if(src_palette_entries < 256) {
+                                uint32_t pad_bytes = (256 - src_palette_entries) * sizeof(lv_color32_t);
+                                uint8_t * zeros = lv_calloc(1, pad_bytes);
+                                if(zeros) {
+                                    EVE_Hal_wrMem(u->hal, base_addr + src_palette_bytes, zeros, pad_bytes);
+                                    lv_free(zeros);
+                                }
                             }
+                        }
+                        else
+#endif
+                        {
+                            uint16_t palette[256];
+#if (EVE_SUPPORT_CHIPID >= EVE_FT810) || defined(EVE_MULTI_GRAPHICS_TARGET)
+                            if(eve_format == PALETTED565)
+                                convert_xrgb8888_to_rgb565(palette_data, (uint8_t *)palette, src_palette_entries);
+                            else
+#endif
+                                convert_argb8888_to_argb4(palette_data, (uint8_t *)palette, src_palette_entries);
+                            EVE_Hal_wrMem(u->hal, base_addr, (const uint8_t *)palette, palette_size);
                         }
 
                         row_writer_t wr;
@@ -711,9 +752,8 @@ lv_eve5_vram_res_t * lv_draw_eve5_upload_image_to_gpu_ex(lv_draw_eve5_unit_t * u
                         lv_free(wr.buf);
                     }
                     else
-#endif
                     {
-                        /* Pre-BT820 path: no GPU palette. Convert palette to ARGB4
+                        /* FT800/FT801 path: no GPU palette. Convert palette to ARGB4
                          * once on host, then expand each pixel through the LUT. */
                         uint16_t palette_argb4[256];
                         lv_memzero(palette_argb4, sizeof(palette_argb4));

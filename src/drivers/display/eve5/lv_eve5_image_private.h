@@ -71,6 +71,10 @@ static inline int32_t eve5_format_bpp(uint32_t eve_format)
 #endif
             return 2;
         case L8:
+#if (EVE_SUPPORT_CHIPID >= EVE_FT810) || defined(EVE_MULTI_GRAPHICS_TARGET)
+        case PALETTED565:
+        case PALETTED4444:
+#endif
 #if (EVE_SUPPORT_CHIPID >= EVE_BT820)
         case PALETTEDARGB8:
 #endif

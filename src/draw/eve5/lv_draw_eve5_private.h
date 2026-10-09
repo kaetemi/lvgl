@@ -1182,6 +1182,8 @@ void lv_draw_eve5_register_vram_callbacks(lv_draw_eve5_unit_t * u);
 #endif
 bool lv_draw_eve5_get_render_target_format(EVE_HalContext *hal, lv_color_format_t lv_cf,
                                            uint16_t * eve_fmt, uint8_t * bpp);
+/* Indexed mapping conservatively chooses an alpha palette; upload selects
+ * PALETTED565 instead when all source palette entries are opaque. */
 bool lv_draw_eve5_get_eve_format_info(EVE_HalContext *hal, lv_color_format_t src_cf,
                                       uint16_t * eve_format, uint8_t * bits_per_pixel,
                                       bool *needs_conversion);

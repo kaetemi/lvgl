@@ -49,6 +49,14 @@ static void assert_mapping(EVE_HalContext * hal, bool truecolor, bool extended)
 {
     uint16_t rgb = RGB565, argb = ARGB4, indexed = ARGB4;
     uint8_t rgb_bits = 16, argb_bits = 16, indexed_bits = 16;
+#if (EVE_SUPPORT_CHIPID >= EVE_FT810) || defined(EVE_MULTI_GRAPHICS_TARGET)
+    EVE_HalContext * phost = hal;
+    LV_UNUSED(phost);
+    if(EVE_CHIPID >= EVE_FT810) {
+        indexed = PALETTED4444;
+        indexed_bits = 8;
+    }
+#endif
 #ifdef EVE_SUPPORT_TRUECOLOR
     if(truecolor) {
         rgb = RGB8;
@@ -95,7 +103,165 @@ void test_eve5_cpu_formats_follow_truecolor_capability(void)
     assert_mapping(&hal, true, false);
     hal.ChipId = EVE_BT820;
     assert_mapping(&hal, true, true);
+    hal.ChipId = EVE_FT800;
+    assert_mapping(&hal, false, false);
 #endif
+}
+
+static void check_indexed_upload(lv_color_format_t cf, unsigned alpha_mode)
+{
+#if (EVE_SUPPORT_CHIPID >= EVE_FT810) || defined(EVE_MULTI_GRAPHICS_TARGET)
+    EVE_HalContext * phost = unit->hal;
+    if(EVE_CHIPID < EVE_FT810) TEST_IGNORE_MESSAGE("Native palettes require FT810+");
+    const unsigned w = 9, h = 3;
+    unsigned bpp = lv_color_format_get_bpp(cf);
+    unsigned entries = LV_COLOR_INDEXED_PALETTE_SIZE(cf);
+    unsigned palette_bytes = entries * 4;
+    unsigned row_bytes = (w * bpp + 7) / 8;
+    unsigned stride = row_bytes + 3;
+    uint8_t src[1024 + 36], dst[1024 + 36], gpu[1024 + 28];
+    uint8_t indices[27];
+    lv_memset(src, 0xEE, sizeof(src));
+    for(unsigned i = 0; i < entries; i++) {
+        src[i * 4 + 0] = (uint8_t)(i * 13 + 18);
+        src[i * 4 + 1] = (uint8_t)(i * 7 + 52);
+        src[i * 4 + 2] = (uint8_t)(i * 3 + 86);
+        src[i * 4 + 3] = 255;
+    }
+    if(alpha_mode == 1) {
+        src[3] = 0;
+        src[7] = 117;
+    }
+    if(alpha_mode) src[(entries - 1) * 4 + 3] = 254;
+    for(unsigned y = 0; y < h; y++) {
+        uint8_t * row = src + palette_bytes + y * stride;
+        lv_memzero(row, row_bytes);
+        for(unsigned x = 0; x < w; x++) {
+            unsigned index = (entries - 1 - (x + y * w) * 7) & (entries - 1);
+            indices[y * w + x] = (uint8_t)index;
+            unsigned shift = 8 - bpp - (x * bpp % 8);
+            row[x * bpp / 8] |= (uint8_t)(index << shift);
+        }
+    }
+    image.header.magic = LV_IMAGE_HEADER_MAGIC;
+    image.header.cf = cf;
+    image.header.w = w;
+    image.header.h = h;
+    image.header.stride = stride;
+    image.data = src;
+    image.data_size = palette_bytes + stride * h;
+    uploaded = lv_draw_eve5_upload_image_to_gpu_ex(unit, &image, false, false);
+    TEST_ASSERT_NOT_NULL(uploaded);
+
+    bool extended = EVE_Hal_supportRenderTarget(phost);
+    uint16_t expected_format = alpha_mode ? PALETTED4444 : PALETTED565;
+    unsigned gpu_palette_bytes = entries * 2;
+#if EVE_SUPPORT_CHIPID >= EVE_BT820
+    if(extended) {
+        expected_format = PALETTEDARGB8;
+        gpu_palette_bytes = 1024;
+    }
+#endif
+    TEST_ASSERT_EQUAL_UINT16(expected_format, uploaded->eve_format);
+    TEST_ASSERT_EQUAL_UINT32(w, uploaded->stride);
+    TEST_ASSERT_EQUAL_INT(1, eve5_format_bpp(uploaded->eve_format));
+    TEST_ASSERT_EQUAL_UINT32(0, uploaded->palette_offset);
+    TEST_ASSERT_EQUAL_UINT32(gpu_palette_bytes, uploaded->source_offset);
+    TEST_ASSERT_EQUAL_UINT32(gpu_palette_bytes + 28, uploaded->base.size);
+    TEST_ASSERT_EQUAL(extended || alpha_mode != 0, lv_draw_eve5_format_has_alpha(uploaded->eve_format));
+    uint32_t addr = EVE_GpuAlloc_Get(unit->allocator, uploaded->gpu_handle);
+    TEST_ASSERT_NOT_EQUAL(GA_INVALID, addr);
+    EVE_Hal_rdMem(phost, gpu, addr, uploaded->base.size);
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(indices, gpu + gpu_palette_bytes, sizeof(indices));
+    TEST_ASSERT_EQUAL_HEX8(0, gpu[gpu_palette_bytes + 27]);
+
+    lv_memset(dst, 0xCD, sizeof(dst));
+    lv_draw_buf_t buf = { 0 };
+    buf.header = image.header;
+    buf.data = dst;
+    buf.data_size = sizeof(dst);
+    TEST_ASSERT_TRUE(lv_draw_eve5_download_image(unit, &buf, uploaded));
+    for(unsigned i = 0; i < entries; i++) {
+        const uint8_t * s = src + i * 4;
+        uint8_t expected[4];
+        if(extended) {
+            lv_memcpy(expected, s, 4);
+            TEST_ASSERT_EQUAL_HEX8_ARRAY(s, gpu + i * 4, 4);
+        }
+        else if(alpha_mode) {
+            for(unsigned c = 0; c < 4; c++) expected[c] = (s[c] >> 4) * 17;
+            TEST_ASSERT_EQUAL_HEX16((s[3] >> 4) * 4096 + (s[2] >> 4) * 256 +
+                                   (s[1] >> 4) * 16 + (s[0] >> 4),
+                                   gpu[i * 2] | (gpu[i * 2 + 1] << 8));
+        }
+        else {
+            uint8_t b = s[0] >> 3, g = s[1] >> 2, r = s[2] >> 3;
+            expected[0] = (b << 3) | (b >> 2);
+            expected[1] = (g << 2) | (g >> 4);
+            expected[2] = (r << 3) | (r >> 2);
+            expected[3] = 255;
+            TEST_ASSERT_EQUAL_HEX16(r * 2048 + g * 32 + b, gpu[i * 2] | (gpu[i * 2 + 1] << 8));
+        }
+        TEST_ASSERT_EQUAL_HEX8_ARRAY(expected, dst + i * 4, 4);
+    }
+    for(unsigned y = 0; y < h; y++) {
+        TEST_ASSERT_EQUAL_HEX8_ARRAY(src + palette_bytes + y * stride,
+                                     dst + palette_bytes + y * stride, row_bytes);
+        for(unsigned p = row_bytes; p < stride; p++)
+            TEST_ASSERT_EQUAL_HEX8(0xCD, dst[palette_bytes + y * stride + p]);
+    }
+    /* A cached draw reuses both the indices and the selected palette format. */
+    TEST_ASSERT_EQUAL_PTR(uploaded, lv_draw_eve5_upload_image_to_gpu_ex(unit, &image, false, false));
+#else
+    LV_UNUSED(cf);
+    LV_UNUSED(alpha_mode);
+    TEST_IGNORE_MESSAGE("Native palettes require FT810+");
+#endif
+}
+
+void test_eve5_cpu_i1_opaque_palette(void)
+{
+    check_indexed_upload(LV_COLOR_FORMAT_I1, 0);
+}
+
+void test_eve5_cpu_i2_opaque_palette(void)
+{
+    check_indexed_upload(LV_COLOR_FORMAT_I2, 0);
+}
+
+void test_eve5_cpu_i4_opaque_palette(void)
+{
+    check_indexed_upload(LV_COLOR_FORMAT_I4, 0);
+}
+
+void test_eve5_cpu_i8_opaque_palette(void)
+{
+    check_indexed_upload(LV_COLOR_FORMAT_I8, 0);
+}
+
+void test_eve5_cpu_i1_alpha_palette(void)
+{
+    check_indexed_upload(LV_COLOR_FORMAT_I1, 1);
+}
+
+void test_eve5_cpu_i2_alpha_palette(void)
+{
+    check_indexed_upload(LV_COLOR_FORMAT_I2, 1);
+}
+
+void test_eve5_cpu_i4_alpha_palette(void)
+{
+    check_indexed_upload(LV_COLOR_FORMAT_I4, 1);
+}
+
+void test_eve5_cpu_i8_alpha_palette(void)
+{
+    check_indexed_upload(LV_COLOR_FORMAT_I8, 1);
+}
+
+void test_eve5_cpu_palette_nearly_opaque_last_entry_keeps_alpha(void)
+{
+    check_indexed_upload(LV_COLOR_FORMAT_I8, 2);
 }
 
 static void upload(lv_color_format_t cf, uint8_t * bytes, uint32_t size, uint32_t stride,
