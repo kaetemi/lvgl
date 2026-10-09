@@ -4,6 +4,7 @@
 #include "src/misc/cache/instance/lv_image_cache.h"
 #include "unity/unity.h"
 #include "src/drivers/display/eve5/lv_eve5.h"
+#include "src/draw/eve5/lv_draw_eve5.h"
 
 static lv_draw_buf_t * image;
 static uint8_t * frame;
@@ -176,5 +177,47 @@ void test_eve5_allocator_retry_stops_when_gc_cannot_make_progress(void)
     TEST_ASSERT_TRUE(lv_test_screenshot_read(frame));
     TEST_ASSERT_FALSE(lv_eve5_has_pending_refresh(disp));
     TEST_ASSERT_EQUAL_UINT(5, renders);
+}
+
+void test_eve5_layer_refusals_count_only_unsupported_targets(void)
+{
+    lv_display_t * disp = lv_display_get_default();
+    lv_draw_eve5_reset_stats();
+    lv_obj_invalidate(lv_screen_active());
+    lv_refr_now(disp);
+    TEST_ASSERT_EQUAL_UINT32(0, lv_draw_eve5_get_stats()->layer_tasks_refused);
+
+    lv_obj_t * panel = lv_obj_create(lv_screen_active());
+    lv_obj_remove_style_all(panel);
+    lv_obj_set_size(panel, 100, 60);
+    lv_obj_set_style_radius(panel, 12, 0);
+    lv_obj_set_style_clip_corner(panel, true, 0);
+    lv_obj_t * label = lv_label_create(panel);
+    lv_label_set_text(label, "Layer\nclipping\nexample");
+    lv_refr_now(disp);
+    uint32_t refused = lv_draw_eve5_get_stats()->layer_tasks_refused;
+    if(EVE_Hal_supportRenderTarget(lv_eve5_get_hal(disp))) {
+        TEST_ASSERT_EQUAL_UINT32(0, refused);
+    }
+    else {
+        TEST_ASSERT_GREATER_THAN_UINT32(0, refused);
+    }
+
+    /* Empty refreshes and repeated captures must retain the displayed frame's
+     * count without introducing more refusals. */
+    lv_refr_now(disp);
+    TEST_ASSERT_TRUE(lv_test_screenshot_read(frame));
+    TEST_ASSERT_TRUE(lv_test_screenshot_read(frame));
+    TEST_ASSERT_EQUAL_UINT32(refused, lv_draw_eve5_get_stats()->layer_tasks_refused);
+
+    lv_obj_set_style_clip_corner(panel, false, 0);
+    lv_refr_now(disp);
+    TEST_ASSERT_EQUAL_UINT32(refused, lv_draw_eve5_get_stats()->layer_tasks_refused);
+    lv_draw_eve5_reset_stats();
+    TEST_ASSERT_EQUAL_UINT32(0, lv_draw_eve5_get_stats()->layer_tasks_refused);
+    lv_obj_invalidate(panel);
+    lv_refr_now(disp);
+    TEST_ASSERT_TRUE(lv_test_screenshot_read(frame));
+    TEST_ASSERT_EQUAL_UINT32(0, lv_draw_eve5_get_stats()->layer_tasks_refused);
 }
 #endif

@@ -290,6 +290,11 @@ const lv_draw_eve5_stats_t * lv_draw_eve5_get_stats(void)
     return &lv_draw_eve5_stats;
 }
 
+void lv_draw_eve5_reset_stats(void)
+{
+    lv_memzero(&lv_draw_eve5_stats, sizeof(lv_draw_eve5_stats));
+}
+
 /**********************
  * DISPATCH/EVALUATE
  **********************/
@@ -1596,6 +1601,7 @@ static int32_t evaluate_nort(lv_draw_unit_t * draw_unit, lv_draw_task_t * task)
     lv_draw_eve5_unit_t * u = (lv_draw_eve5_unit_t *)draw_unit;
     lv_display_t * disp = lv_eve5_disp_from_hal(u->hal);
     if(!eve5_is_screen_layer(disp, target)) {
+        lv_draw_eve5_stats.layer_tasks_refused++;
         EVE5_LOG("EVE5 NORT: Evaluate: type=%s -> declined (not screen layer)", task_type_str(task->type));
         return 0;
     }

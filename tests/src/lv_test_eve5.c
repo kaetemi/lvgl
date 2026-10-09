@@ -22,6 +22,7 @@
 static EVE_HalContext s_host;
 static EVE_GpuAlloc s_allocator;
 static bool s_opened;
+static uint32_t s_frame_layer_tasks_refused;
 
 static bool idle_cb(EVE_HalContext * phost);
 static bool read_screen_cb(lv_display_t * disp, uint8_t * buf, uint32_t stride);
@@ -98,10 +99,11 @@ void lv_test_eve5_close(void)
     buf_track_report();
     const lv_draw_eve5_stats_t * stats = lv_draw_eve5_get_stats();
     printf("EVE5 stats: uploads=%" LV_PRIu32 " upload_bytes=%llu hw_decodes=%" LV_PRIu32
-           " downloads=%" LV_PRIu32 " download_bytes=%llu hashes=%" LV_PRIu32 " hash_bytes=%llu\n",
+           " downloads=%" LV_PRIu32 " download_bytes=%llu hashes=%" LV_PRIu32 " hash_bytes=%llu"
+           " layer_tasks_refused=%" LV_PRIu32 "\n",
            stats->uploads, (unsigned long long)stats->upload_bytes, stats->hw_decodes,
            stats->downloads, (unsigned long long)stats->download_bytes,
-           stats->hashes, (unsigned long long)stats->hash_bytes);
+           stats->hashes, (unsigned long long)stats->hash_bytes, stats->layer_tasks_refused);
     lv_draw_eve5_deinit();
     EVE_Hal_close(&s_host);
     EVE_Hal_release();
@@ -308,6 +310,7 @@ static void frame_start_cb(lv_event_t * e)
     LV_UNUSED(e);
     /* Empty refreshes keep the displayed frame and its diagnosis. Mark only
      * actual rendering starts so reports can scope overflow logs to captures. */
+    s_frame_layer_tasks_refused = lv_draw_eve5_get_stats()->layer_tasks_refused;
     printf("EVE5 frame: begin\n");
 }
 
@@ -340,6 +343,10 @@ static bool read_screen_cb(lv_display_t * disp, uint8_t * buf, uint32_t stride)
     if(ok) {
         printf("EVE5 capture: settled redraws=%u alloc_failures=%u\n", redraws,
                (unsigned)EVE_GpuAlloc_GetAllocFailedCount(lv_eve5_get_allocator(disp)));
+        /* Keep lifetime transfer totals intact. Recovery redraws replace this
+         * baseline, while empty refreshes and repeated captures preserve it. */
+        printf("EVE5 capture: layer_tasks_refused=%" LV_PRIu32 "\n",
+               lv_draw_eve5_get_stats()->layer_tasks_refused - s_frame_layer_tasks_refused);
     }
     return ok;
 }

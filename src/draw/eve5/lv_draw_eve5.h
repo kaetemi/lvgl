@@ -66,7 +66,7 @@ struct _lv_draw_unit_t;
 void lv_draw_eve5_handle_coprocessor_reset(struct _lv_draw_unit_t * draw_unit);
 
 /**
- * Cumulative transfer, decode, and hash counters since program startup, excluding display lists.
+ * Cumulative counters since program startup or lv_draw_eve5_reset_stats(), excluding display lists.
  * Count pixel uploads to EVE memory, images loaded or decoded by the coprocessor, and pixel
  * readbacks to CPU memory. Without LV_USE_DRAW_VRAM, also count CPU bytes hashed to detect changes
  * to cached GPU images.
@@ -79,9 +79,16 @@ typedef struct {
     uint32_t downloads;
     uint64_t hash_bytes;
     uint32_t hashes;
+    /** Tasks targeting non-screen layers declined because the chip cannot render to memory.
+     * Counts evaluation refusals, including those another draw unit can handle. Does not count
+     * screen-layer LAYER composites, disabled-unit refusals, or explicit SW fallback tasks. */
+    uint32_t layer_tasks_refused;
 } lv_draw_eve5_stats_t;
 
+/** Query or reset counters on the LVGL thread, outside drawing. The returned pointer is live;
+ * copy the struct to retain a snapshot. Reset does not change rendering or allocator state. */
 const lv_draw_eve5_stats_t * lv_draw_eve5_get_stats(void);
+void lv_draw_eve5_reset_stats(void);
 
 #endif /* LV_USE_DRAW_EVE5 */
 
