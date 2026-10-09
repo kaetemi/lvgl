@@ -1393,6 +1393,16 @@ void lv_draw_eve5_label_dl_bounds(const lv_draw_task_t * t, bool clipped, uint32
             uint32_t letter = lv_text_encoded_next(dsc->text + start, &i);
             /* Line breaks and markers are not drawn */
             if(letter < 0x20 || lv_text_is_marker(letter)) continue;
+#if LV_USE_BIDI
+            /* The iterator can mirror these brackets after layout. Their
+             * partners may resolve to a different font or glyph format.
+             * Keep the larger allowance without running bidi here. */
+            if(refine_glyphs && !dsc->has_bided && letter < 0x80 && lv_strchr("<({[>)}]", (char)letter)) {
+                refined_plain += DL_GLYPH_IMAGE;
+                refined_rotated += DL_GLYPH_IMAGE;
+                continue;
+            }
+#endif
             lv_font_glyph_dsc_t g;
             if(!lv_font_get_glyph_dsc(dsc->font, &g, letter, 0)) {
 #if LV_USE_FONT_PLACEHOLDER

@@ -366,6 +366,42 @@ static const void * image_glyph_path(const lv_font_t * font, uint32_t letter, ui
     return letter == 0xF617 ? &emoji_F617 : NULL;
 }
 
+static bool asymmetric_bracket_metrics(const lv_font_t * font, lv_font_glyph_dsc_t * glyph,
+                                       uint32_t letter, uint32_t next)
+{
+    if(letter == ')') return false;
+    bool found = lv_font_get_glyph_dsc_fmt_txt(font, glyph, letter, next);
+    if(found && letter == '(') glyph->box_w = glyph->box_h = 0;
+    return found;
+}
+
+static const void * mirrored_image_glyph_path(const lv_font_t * font, uint32_t letter, uint32_t next,
+                                            int32_t * offset_y, void * user_data)
+{
+    return image_glyph_path(font, letter == ')' ? 0xF617 : letter, next, offset_y, user_data);
+}
+
+void test_refined_label_bounds_bidi_mirrored_image_glyph(void)
+{
+    /* The source glyph is empty; bidi replaces it with an image-font glyph.
+     * Estimating only source metrics would leave just the label overhead. */
+    lv_font_t font = lv_font_montserrat_16;
+    font.get_glyph_dsc = asymmetric_bracket_metrics;
+    image_font = lv_imgfont_create(80, mirrored_image_glyph_path, NULL);
+    TEST_ASSERT_NOT_NULL(image_font);
+    font.fallback = image_font;
+    label.font = &font;
+    label.text = "(";
+    label.bidi_dir = LV_BASE_DIR_RTL;
+    task.area = task.clip_area = (lv_area_t) {20, 20, 300, 120};
+    assert_render_bound();
+    label.rotation = 450;
+    assert_render_bound();
+    label.text = ")";
+    label.has_bided = true;
+    assert_render_bound();
+}
+
 void test_compressed_label_keeps_image_glyph_fallback_bound(void)
 {
     LV_FONT_DECLARE(test_font_montserrat_ascii_3bpp_compressed);
