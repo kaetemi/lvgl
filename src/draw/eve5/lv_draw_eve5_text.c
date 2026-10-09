@@ -760,7 +760,7 @@ static void emit_transformed_glyph(lv_draw_eve5_unit_t * u, int32_t rotation, in
     if(alpha != NULL) {
 #if (EVE_SUPPORT_CHIPID >= EVE_BT815) || defined(EVE_MULTI_GRAPHICS_TARGET)
         if(EVE_CHIPID >= EVE_BT815) {
-            EVE_CoDl_bitmapLayout(phost, GLFORMAT, alpha->stride, g_h);
+            lv_draw_eve5_bitmap_layout(u, GLFORMAT, alpha->stride, g_h);
             EVE_CoDl_bitmapExtFormat(phost, alpha->format);
             EVE_CoDl_bitmapSwizzle(phost, ALPHA, ALPHA, ALPHA, ALPHA);
             EVE_CoDl_colorRgb(phost, (uint8_t)(alpha->color.red * alpha->opa / 255),
@@ -771,10 +771,10 @@ static void emit_transformed_glyph(lv_draw_eve5_unit_t * u, int32_t rotation, in
         else
 #endif
         {
-            EVE_CoDl_bitmapLayout(phost, alpha->format, alpha->stride, g_h);
+            lv_draw_eve5_bitmap_layout(u, alpha->format, alpha->stride, g_h);
         }
     }
-    apply_image_skew(phost, &xform, BILINEAR, 0, 0);
+    apply_image_skew(u, &xform, BILINEAR, 0, 0);
     EVE_CoDl_vertex2f_0(phost, draw_vx, draw_vy);
     EVE_CoDl_restoreContext(phost);
 }
@@ -811,8 +811,8 @@ static void emit_glyph_vertex(lv_draw_eve5_unit_t * u, lv_draw_glyph_dsc_t * gly
     }
     else {
         /* Nearest, at the texel centers: the bitmap's border never mixes in */
-        if(alpha != NULL) EVE_CoDl_bitmapLayout(u->hal, alpha->format, alpha->stride, g_h);
-        EVE_CoDl_bitmapSize(u->hal, NEAREST, BORDER, BORDER, g_w, g_h);
+        if(alpha != NULL) lv_draw_eve5_bitmap_layout(u, alpha->format, alpha->stride, g_h);
+        lv_draw_eve5_bitmap_size(u, NEAREST, BORDER, BORDER, g_w, g_h);
         EVE_CoDl_vertex2f_0(u->hal, x, y);
     }
 }
@@ -1083,10 +1083,10 @@ static void draw_glyph_cb(lv_draw_task_t * t, lv_draw_glyph_dsc_t * glyph_dsc,
             EVE_CoDl_colorRgb(u->hal, 255, 255, 255);
         }
         EVE_CoDl_colorA(u->hal, opa);
-        EVE_CoDl_bitmapHandle(phost, EVE_CO_SCRATCH_HANDLE);
+        EVE_CoDl_bitmapHandle(phost, u->bitmap_scratch.handle);
         EVE_CoDl_bitmapSource(u->hal, addr);
         set_palette_if_needed(u->hal, vr->eve_format, palette_addr);
-        eve5_set_image_bitmap_layout(u->hal, vr->eve_format, (int32_t)vr->stride, g_h, vr->sample_as_luminance);
+        eve5_set_image_bitmap_layout(u, vr->eve_format, (int32_t)vr->stride, g_h, vr->sample_as_luminance);
         EVE_CoDl_bitmapTransform_identity(u->hal);
 
         /* Rotated, scaled or skewed with the letter */
@@ -1206,10 +1206,10 @@ static void alpha_glyph_cb(lv_draw_task_t * t, lv_draw_glyph_dsc_t * glyph_dsc,
         EVE_CoDl_end(u->hal);
 
         EVE_CoDl_colorA(u->hal, glyph_dsc->opa);
-        EVE_CoDl_bitmapHandle(phost, EVE_CO_SCRATCH_HANDLE);
+        EVE_CoDl_bitmapHandle(phost, u->bitmap_scratch.handle);
         EVE_CoDl_bitmapSource(u->hal, addr);
         set_palette_if_needed(u->hal, vr->eve_format, palette_addr);
-        eve5_set_image_bitmap_layout(u->hal, vr->eve_format, (int32_t)vr->stride, g_h, vr->sample_as_luminance);
+        eve5_set_image_bitmap_layout(u, vr->eve_format, (int32_t)vr->stride, g_h, vr->sample_as_luminance);
         EVE_CoDl_bitmapTransform_identity(u->hal);
 
         EVE_CoDl_begin(u->hal, BITMAPS);
@@ -1367,7 +1367,7 @@ void lv_draw_eve5_hal_draw_label(lv_draw_eve5_unit_t * u, lv_draw_task_t * t)
     if(use_bitmap_font) {
         /* BT820 L-format decodes as (255,255,255,L) on hardware */
         EVE_CoDl_bitmapTransform_identity(u->hal);
-        EVE_CoDl_bitmapHandle(phost, EVE_CO_SCRATCH_HANDLE);
+        EVE_CoDl_bitmapHandle(phost, u->bitmap_scratch.handle);
         EVE_CoDl_begin(u->hal, BITMAPS);
 
         s_current_unit = u;
@@ -1433,7 +1433,7 @@ void lv_draw_eve5_hal_draw_letter(lv_draw_eve5_unit_t * u, lv_draw_task_t * t)
     EVE_CoDl_colorRgb(phost, dsc->color.red, dsc->color.green, dsc->color.blue);
     EVE_CoDl_colorA(phost, dsc->opa);
     EVE_CoDl_bitmapTransform_identity(phost);
-    EVE_CoDl_bitmapHandle(phost, EVE_CO_SCRATCH_HANDLE);
+    EVE_CoDl_bitmapHandle(phost, u->bitmap_scratch.handle);
 
     if(dsc->blend_mode == LV_BLEND_MODE_ADDITIVE) {
         EVE_CoDl_blendFunc(u->hal, SRC_ALPHA, ONE);
@@ -1536,7 +1536,7 @@ void lv_draw_eve5_alpha_draw_label(lv_draw_eve5_unit_t * u, lv_draw_task_t * t, 
     if(alpha_to_rgb) EVE_CoDl_colorRgb(phost, 255, 255, 255);
     EVE_CoDl_colorA(phost, dsc->opa);
     EVE_CoDl_bitmapTransform_identity(phost);
-    EVE_CoDl_bitmapHandle(phost, EVE_CO_SCRATCH_HANDLE);
+    EVE_CoDl_bitmapHandle(phost, u->bitmap_scratch.handle);
     EVE_CoDl_begin(phost, BITMAPS);
 
     s_alpha_unit = u;
@@ -1579,7 +1579,7 @@ void lv_draw_eve5_alpha_draw_letter(lv_draw_eve5_unit_t * u, lv_draw_task_t * t,
     if(alpha_to_rgb) EVE_CoDl_colorRgb(phost, 255, 255, 255);
     EVE_CoDl_colorA(phost, dsc->opa);
     EVE_CoDl_bitmapTransform_identity(phost);
-    EVE_CoDl_bitmapHandle(phost, EVE_CO_SCRATCH_HANDLE);
+    EVE_CoDl_bitmapHandle(phost, u->bitmap_scratch.handle);
     EVE_CoDl_begin(phost, BITMAPS);
 
     s_alpha_unit = u;

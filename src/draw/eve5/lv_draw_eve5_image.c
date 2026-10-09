@@ -106,11 +106,12 @@ bool lv_draw_eve5_image_needs_alpha_rendertarget(const lv_draw_task_t * t)
  * On return: colorMask=(0,0,0,0), stencil accumulation state set,
  * bitmap layout restored to original format.
  */
-void build_colorkey_stencil(EVE_HalContext *phost,
+void build_colorkey_stencil(lv_draw_eve5_unit_t * u,
                             const lv_image_colorkey_t * colorkey,
                             uint16_t eve_format, int32_t eve_stride, int32_t layout_h,
                             int32_t vx, int32_t vy)
 {
+    EVE_HalContext * phost = u->hal;
     /* GLFORMAT, BITMAP_EXT_FORMAT, and BITMAP_SWIZZLE arrived with ASTC support
      * in BT815. On earlier chips the swizzle calls silently no-op and the per-
      * channel routing the stencil build relies on doesn't happen. Skip the whole
@@ -128,7 +129,7 @@ void build_colorkey_stencil(EVE_HalContext *phost,
 
     if(!extended) {
         /* Switch to GLFORMAT mode so BITMAP_SWIZZLE takes effect */
-        EVE_CoDl_bitmapLayout(phost, GLFORMAT, eve_stride, layout_h);
+        lv_draw_eve5_bitmap_layout(u, GLFORMAT, eve_stride, layout_h);
         EVE_CoDl_bitmapExtFormat(phost, eve_format);
     }
     /* Extended formats (ASTC, etc.) are already in GLFORMAT mode */
@@ -178,7 +179,7 @@ void build_colorkey_stencil(EVE_HalContext *phost,
         EVE_CoDl_bitmapSwizzle(phost, RED, GREEN, BLUE, ALPHA);
     }
     else {
-        EVE_CoDl_bitmapLayout(phost, (uint8_t)eve_format, eve_stride, layout_h);
+        lv_draw_eve5_bitmap_layout(u, (uint8_t)eve_format, eve_stride, layout_h);
     }
 #else
     (void)phost;
@@ -410,14 +411,15 @@ bool compute_image_skew(image_skew_t * out,
  * Apply computed skew transform: set BITMAP_SIZE for the transformed
  * bounding box (or tile extent) and BITMAP_TRANSFORM A-F coefficients.
  */
-void apply_image_skew(EVE_HalContext *phost, const image_skew_t * skew,
+void apply_image_skew(lv_draw_eve5_unit_t * u, const image_skew_t * skew,
                       uint8_t bmp_filter, int32_t tile_w, int32_t tile_h)
 {
+    EVE_HalContext * phost = u->hal;
     if(tile_w > 0 && tile_h > 0) {
-        EVE_CoDl_bitmapSize(phost, bmp_filter, REPEAT, REPEAT, tile_w, tile_h);
+        lv_draw_eve5_bitmap_size(u, bmp_filter, REPEAT, REPEAT, tile_w, tile_h);
     }
     else {
-        EVE_CoDl_bitmapSize(phost, bmp_filter, BORDER, BORDER, skew->bmp_w, skew->bmp_h);
+        lv_draw_eve5_bitmap_size(u, bmp_filter, BORDER, BORDER, skew->bmp_w, skew->bmp_h);
     }
 #if LV_DRAW_EVE5_NO_FLOAT
     /* Convert 16.16 fixed-point to EVE register format:

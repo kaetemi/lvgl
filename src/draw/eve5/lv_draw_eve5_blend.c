@@ -102,27 +102,27 @@ static const blend_channel_t luminance_channel[1] = {
  * STATIC PROTOTYPES
  **********************/
 
-static void setup_blit(EVE_HalContext *phost, uint32_t addr,
+static void setup_blit(lv_draw_eve5_unit_t * u, uint32_t addr,
                        uint32_t stride, int32_t w, int32_t h);
-static void setup_swizzled_blit(EVE_HalContext *phost, uint32_t addr,
+static void setup_swizzled_blit(lv_draw_eve5_unit_t * u, uint32_t addr,
                                 uint32_t stride, int32_t w, int32_t h,
                                 uint8_t channel);
 static void draw_bitmap(EVE_HalContext *phost);
 static void draw_rect(EVE_HalContext *phost, int32_t w, int32_t h);
-static void begin_channel_dl(EVE_HalContext *phost, uint32_t target_addr,
+static void begin_channel_dl(lv_draw_eve5_unit_t * u, uint32_t target_addr,
                              int32_t aligned_w, int32_t aligned_h, int32_t w, int32_t h);
 static void finish_channel_dl(EVE_HalContext *phost);
-static void copy_src_alpha(EVE_HalContext *phost, uint32_t src_addr,
+static void copy_src_alpha(lv_draw_eve5_unit_t * u, uint32_t src_addr,
                            uint32_t stride, int32_t w, int32_t h);
-static void draw_channel(EVE_HalContext *phost, uint32_t addr, uint32_t stride,
+static void draw_channel(lv_draw_eve5_unit_t * u, uint32_t addr, uint32_t stride,
                          int32_t w, int32_t h, uint8_t channel, bool add);
-static void load_channel(EVE_HalContext *phost, uint32_t addr, uint32_t stride,
+static void load_channel(lv_draw_eve5_unit_t * u, uint32_t addr, uint32_t stride,
                          int32_t w, int32_t h, uint8_t channel);
-static void add_channel(EVE_HalContext *phost, uint32_t addr, uint32_t stride,
+static void add_channel(lv_draw_eve5_unit_t * u, uint32_t addr, uint32_t stride,
                         int32_t w, int32_t h, uint8_t channel);
-static void multiply_channel(EVE_HalContext *phost, uint32_t addr, uint32_t stride,
+static void multiply_channel(lv_draw_eve5_unit_t * u, uint32_t addr, uint32_t stride,
                              int32_t w, int32_t h, uint8_t channel);
-static void subtract_channel(EVE_HalContext *phost, uint32_t addr, uint32_t stride,
+static void subtract_channel(lv_draw_eve5_unit_t * u, uint32_t addr, uint32_t stride,
                              int32_t w, int32_t h, uint8_t channel);
 static void invert_alpha(EVE_HalContext *phost, int32_t w, int32_t h);
 static void store_alpha(EVE_HalContext *phost, int32_t w, int32_t h,
@@ -137,13 +137,14 @@ static bool composite_over_dst(lv_draw_eve5_unit_t * u, EVE_GpuHandle *out_resul
  **********************/
 
 /** Configure bitmap for a plain ARGB8 blit. */
-static void setup_blit(EVE_HalContext *phost, uint32_t addr,
+static void setup_blit(lv_draw_eve5_unit_t * u, uint32_t addr,
                        uint32_t stride, int32_t w, int32_t h)
 {
-    EVE_CoDl_bitmapHandle(phost, EVE_CO_SCRATCH_HANDLE);
+    EVE_HalContext * phost = u->hal;
+    EVE_CoDl_bitmapHandle(phost, u->bitmap_scratch.handle);
     EVE_CoDl_bitmapSource(phost, addr);
-    EVE_CoDl_bitmapLayout(phost, ARGB8, stride, h);
-    EVE_CoDl_bitmapSize(phost, NEAREST, BORDER, BORDER, w, h);
+    lv_draw_eve5_bitmap_layout(u, ARGB8, stride, h);
+    lv_draw_eve5_bitmap_size(u, NEAREST, BORDER, BORDER, w, h);
     EVE_CoDl_bitmapTransform_identity(phost);
 }
 
@@ -151,15 +152,16 @@ static void setup_blit(EVE_HalContext *phost, uint32_t addr,
  * Configure bitmap for blitting with a single channel routed to alpha.
  * GLFORMAT + BITMAP_SWIZZLE routes the selected channel to alpha; RGB zeroed.
  */
-static void setup_swizzled_blit(EVE_HalContext *phost, uint32_t addr,
+static void setup_swizzled_blit(lv_draw_eve5_unit_t * u, uint32_t addr,
                                 uint32_t stride, int32_t w, int32_t h,
                                 uint8_t channel)
 {
-    EVE_CoDl_bitmapHandle(phost, EVE_CO_SCRATCH_HANDLE);
+    EVE_HalContext * phost = u->hal;
+    EVE_CoDl_bitmapHandle(phost, u->bitmap_scratch.handle);
     EVE_CoDl_bitmapSource(phost, addr);
-    EVE_CoDl_bitmapLayout(phost, GLFORMAT, stride, h);
+    lv_draw_eve5_bitmap_layout(u, GLFORMAT, stride, h);
     EVE_CoDl_bitmapExtFormat(phost, ARGB8);
-    EVE_CoDl_bitmapSize(phost, NEAREST, BORDER, BORDER, w, h);
+    lv_draw_eve5_bitmap_size(u, NEAREST, BORDER, BORDER, w, h);
     EVE_CoDl_bitmapSwizzle(phost, ZERO, ZERO, ZERO, channel);
     EVE_CoDl_bitmapTransform_identity(phost);
 }
@@ -184,11 +186,12 @@ static void draw_rect(EVE_HalContext *phost, int32_t w, int32_t h)
 }
 
 /** Start a channel-math DL: render target, clear to (0,0,0,0). */
-static void begin_channel_dl(EVE_HalContext *phost, uint32_t target_addr,
+static void begin_channel_dl(lv_draw_eve5_unit_t * u, uint32_t target_addr,
                              int32_t aligned_w, int32_t aligned_h, int32_t w, int32_t h)
 {
+    EVE_HalContext * phost = u->hal;
     EVE_CoCmd_renderTarget(phost, target_addr, ARGB8, aligned_w, aligned_h);
-    EVE_CoCmd_dlStart(phost);
+    lv_draw_eve5_dl_start(u);
     EVE_CoDl_scissorXY(phost, 0, 0);
     EVE_CoDl_scissorSize(phost, w, h);
     EVE_CoDl_clearColorRgb(phost, 0, 0, 0);
@@ -207,12 +210,13 @@ static void finish_channel_dl(EVE_HalContext *phost)
 }
 
 /** Copy src alpha channel (normal blit, alpha-only). */
-static void copy_src_alpha(EVE_HalContext *phost, uint32_t src_addr,
+static void copy_src_alpha(lv_draw_eve5_unit_t * u, uint32_t src_addr,
                            uint32_t stride, int32_t w, int32_t h)
 {
+    EVE_HalContext * phost = u->hal;
     EVE_CoDl_colorMask(phost, 0, 0, 0, 1);
     EVE_CoDl_blendFunc(phost, ONE, ZERO);
-    setup_blit(phost, src_addr, stride, w, h);
+    setup_blit(u, src_addr, stride, w, h);
     draw_bitmap(phost);
 }
 
@@ -225,36 +229,39 @@ static void copy_src_alpha(EVE_HalContext *phost, uint32_t src_addr,
  **********************/
 
 /** alpha = bitmap.channel, or (add) min(alpha + bitmap.channel, 255) */
-static void draw_channel(EVE_HalContext *phost, uint32_t addr, uint32_t stride,
+static void draw_channel(lv_draw_eve5_unit_t * u, uint32_t addr, uint32_t stride,
                          int32_t w, int32_t h, uint8_t channel, bool add)
 {
+    EVE_HalContext * phost = u->hal;
     EVE_CoDl_blendFunc(phost, ONE, add ? ONE : ZERO);
-    setup_swizzled_blit(phost, addr, stride, w, h, channel);
+    setup_swizzled_blit(u, addr, stride, w, h, channel);
     draw_bitmap(phost);
 }
 
 /** alpha = bitmap.channel */
-static void load_channel(EVE_HalContext *phost, uint32_t addr, uint32_t stride,
+static void load_channel(lv_draw_eve5_unit_t * u, uint32_t addr, uint32_t stride,
                          int32_t w, int32_t h, uint8_t channel)
 {
+    EVE_HalContext * phost = u->hal;
     EVE_CoDl_colorMask(phost, 0, 0, 0, 1);
     EVE_CoDl_colorArgb_ex(phost, 0xFFFFFFFF);
-    draw_channel(phost, addr, stride, w, h, channel, false);
+    draw_channel(u, addr, stride, w, h, channel, false);
 }
 
 /** alpha = min(alpha + bitmap.channel, 255) */
-static void add_channel(EVE_HalContext *phost, uint32_t addr, uint32_t stride,
+static void add_channel(lv_draw_eve5_unit_t * u, uint32_t addr, uint32_t stride,
                         int32_t w, int32_t h, uint8_t channel)
 {
-    draw_channel(phost, addr, stride, w, h, channel, true);
+    draw_channel(u, addr, stride, w, h, channel, true);
 }
 
 /** alpha = alpha * bitmap.channel / 255 */
-static void multiply_channel(EVE_HalContext *phost, uint32_t addr, uint32_t stride,
+static void multiply_channel(lv_draw_eve5_unit_t * u, uint32_t addr, uint32_t stride,
                              int32_t w, int32_t h, uint8_t channel)
 {
+    EVE_HalContext * phost = u->hal;
     EVE_CoDl_blendFunc(phost, DST_ALPHA, ZERO);
-    setup_swizzled_blit(phost, addr, stride, w, h, channel);
+    setup_swizzled_blit(u, addr, stride, w, h, channel);
     draw_bitmap(phost);
 }
 
@@ -264,11 +271,12 @@ static void multiply_channel(EVE_HalContext *phost, uint32_t addr, uint32_t stri
  * Uses complement identity: a - b = 255 - ((255 - a) + b).
  * Hardware clamps the addition to 255, so when b > a the final invert gives 0.
  */
-static void subtract_channel(EVE_HalContext *phost, uint32_t addr, uint32_t stride,
+static void subtract_channel(lv_draw_eve5_unit_t * u, uint32_t addr, uint32_t stride,
                              int32_t w, int32_t h, uint8_t channel)
 {
+    EVE_HalContext * phost = u->hal;
     invert_alpha(phost, w, h);
-    add_channel(phost, addr, stride, w, h, channel);
+    add_channel(u, addr, stride, w, h, channel);
     invert_alpha(phost, w, h);
 }
 
@@ -316,11 +324,11 @@ static bool composite_over_dst(lv_draw_eve5_unit_t * u, EVE_GpuHandle *out_resul
         return false;
     }
 
-    begin_channel_dl(phost, result_addr, aligned_w, aligned_h, w, h);
+    begin_channel_dl(u, result_addr, aligned_w, aligned_h, w, h);
 
     /* Blit dst as base */
     EVE_CoDl_blendFunc(phost, ONE, ZERO);
-    setup_blit(phost, dst_addr, stride, w, h);
+    setup_blit(u, dst_addr, stride, w, h);
     draw_bitmap(phost);
 
     /* Composite temp over dst base */
@@ -374,32 +382,32 @@ EVE_GpuHandle lv_draw_eve5_blend_luminance(lv_draw_eve5_unit_t * u, lv_layer_t *
     EVE_GpuAlloc_OpenScope(u->allocator);
 
     EVE_CoCmd_renderTarget(phost, l8_addr, L8, aw, ah);
-    EVE_CoCmd_dlStart(phost);
+    lv_draw_eve5_dl_start(u);
     EVE_CoDl_scissorXY(phost, 0, 0);
     EVE_CoDl_scissorSize(phost, w, h);
     EVE_CoDl_clearColorRgb(phost, 0, 0, 0);
     EVE_CoDl_clear(phost, 1, 1, 1);
     EVE_CoDl_vertexFormat(phost, 0);
     EVE_CoDl_colorArgb_ex(phost, 0xFFFFFFFF);
-    EVE_CoDl_bitmapHandle(phost, EVE_CO_SCRATCH_HANDLE);
+    EVE_CoDl_bitmapHandle(phost, u->bitmap_scratch.handle);
     EVE_CoDl_bitmapSource(phost, addr);
     EVE_CoDl_bitmapTransform_identity(phost);
-    lv_draw_eve5_draw_luminance(phost, ARGB8, stride, w, h);
+    lv_draw_eve5_draw_luminance(u, ARGB8, stride, w, h);
     finish_channel_dl(phost);
 
-    begin_channel_dl(phost, gray_addr, aw, ah, w, h);
+    begin_channel_dl(u, gray_addr, aw, ah, w, h);
     EVE_CoDl_blendFunc(phost, ONE, ZERO);
     EVE_CoDl_colorMask(phost, 1, 1, 1, 0);
-    EVE_CoDl_bitmapHandle(phost, EVE_CO_SCRATCH_HANDLE);
+    EVE_CoDl_bitmapHandle(phost, u->bitmap_scratch.handle);
     EVE_CoDl_bitmapSource(phost, l8_addr);
-    EVE_CoDl_bitmapLayout(phost, GLFORMAT, aw, h);
+    lv_draw_eve5_bitmap_layout(u, GLFORMAT, aw, h);
     EVE_CoDl_bitmapExtFormat(phost, L8);
-    EVE_CoDl_bitmapSize(phost, NEAREST, BORDER, BORDER, w, h);
+    lv_draw_eve5_bitmap_size(u, NEAREST, BORDER, BORDER, w, h);
     EVE_CoDl_bitmapSwizzle(phost, ALPHA, ALPHA, ALPHA, ONE);
     EVE_CoDl_bitmapTransform_identity(phost);
     draw_bitmap(phost);
     EVE_CoDl_colorMask(phost, 0, 0, 0, 1);
-    setup_blit(phost, addr, stride, w, h);
+    setup_blit(u, addr, stride, w, h);
     draw_bitmap(phost);
     finish_channel_dl(phost);
 
@@ -448,14 +456,14 @@ bool lv_draw_eve5_blend_multiply(lv_draw_eve5_unit_t * u, lv_layer_t * layer,
     const blend_channel_t * chs = luminance ? luminance_channel : rgb_channels;
     int n = luminance ? 1 : 3;
 
-    begin_channel_dl(phost, temp_addr, aw, ah, w, h);
+    begin_channel_dl(u, temp_addr, aw, ah, w, h);
     for(int i = 0; i < n; i++) {
         const blend_channel_t * ch = &chs[i];
-        load_channel(phost, dst_addr, stride, w, h, ch->channel);
-        multiply_channel(phost, src_addr, stride, w, h, ch->channel);
+        load_channel(u, dst_addr, stride, w, h, ch->channel);
+        multiply_channel(u, src_addr, stride, w, h, ch->channel);
         store_alpha(phost, w, h, ch->r_mask, ch->g_mask, ch->b_mask, false);
     }
-    copy_src_alpha(phost, src_addr, stride, w, h);
+    copy_src_alpha(u, src_addr, stride, w, h);
     finish_channel_dl(phost);
 
     bool ok = composite_over_dst(u, out_result, dst_addr, temp, aw, ah, w, h, stride, buf_size);
@@ -499,15 +507,15 @@ bool lv_draw_eve5_blend_subtractive(lv_draw_eve5_unit_t * u, lv_layer_t * layer,
 
     const blend_channel_t * chs = luminance ? luminance_channel : rgb_channels;
     int n = luminance ? 1 : 3;
-    begin_channel_dl(phost, temp_addr, aw, ah, w, h);
+    begin_channel_dl(u, temp_addr, aw, ah, w, h);
     for(int i = 0; i < n; i++) {
         const blend_channel_t * ch = &chs[i];
-        load_channel(phost, dst_addr, stride, w, h, ch->channel);
-        multiply_channel(phost, src_addr, stride, w, h, ALPHA);
-        subtract_channel(phost, src_addr, stride, w, h, ch->channel);
+        load_channel(u, dst_addr, stride, w, h, ch->channel);
+        multiply_channel(u, src_addr, stride, w, h, ALPHA);
+        subtract_channel(u, src_addr, stride, w, h, ch->channel);
         store_alpha(phost, w, h, ch->r_mask, ch->g_mask, ch->b_mask, false);
     }
-    copy_src_alpha(phost, src_addr, stride, w, h);
+    copy_src_alpha(u, src_addr, stride, w, h);
     finish_channel_dl(phost);
 
     bool ok = composite_over_dst(u, out_result, dst_addr, temp, aw, ah, w, h, stride, buf_size);
@@ -554,10 +562,10 @@ bool lv_draw_eve5_blend_difference(lv_draw_eve5_unit_t * u, lv_layer_t * layer,
     EVE_GpuAlloc_OpenScope(u->allocator);
 
     /* DL1: scaled.rgb = d.rgb * a */
-    begin_channel_dl(phost, scaled_addr, aw, ah, w, h);
+    begin_channel_dl(u, scaled_addr, aw, ah, w, h);
     EVE_CoDl_colorMask(phost, 1, 1, 1, 0);
     EVE_CoDl_blendFunc(phost, ONE, ZERO);
-    setup_blit(phost, dst_addr, stride, w, h);
+    setup_blit(u, dst_addr, stride, w, h);
     draw_bitmap(phost);
     EVE_CoDl_blendFunc(phost, ZERO, SRC_ALPHA);
     EVE_CoDl_bitmapSource(phost, src_addr);
@@ -582,17 +590,17 @@ bool lv_draw_eve5_blend_difference(lv_draw_eve5_unit_t * u, lv_layer_t * layer,
 
     const blend_channel_t * chs = luminance ? luminance_channel : rgb_channels;
     int n = luminance ? 1 : 3;
-    begin_channel_dl(phost, temp_addr, aw, ah, w, h);
+    begin_channel_dl(u, temp_addr, aw, ah, w, h);
     for(int i = 0; i < n; i++) {
         const blend_channel_t * ch = &chs[i];
-        load_channel(phost, scaled_addr, stride, w, h, ch->channel);
-        subtract_channel(phost, src_addr, stride, w, h, ch->channel);
+        load_channel(u, scaled_addr, stride, w, h, ch->channel);
+        subtract_channel(u, src_addr, stride, w, h, ch->channel);
         store_alpha(phost, w, h, ch->r_mask, ch->g_mask, ch->b_mask, false);
-        load_channel(phost, src_addr, stride, w, h, ch->channel);
-        subtract_channel(phost, scaled_addr, stride, w, h, ch->channel);
+        load_channel(u, src_addr, stride, w, h, ch->channel);
+        subtract_channel(u, scaled_addr, stride, w, h, ch->channel);
         store_alpha(phost, w, h, ch->r_mask, ch->g_mask, ch->b_mask, true);
     }
-    copy_src_alpha(phost, src_addr, stride, w, h);
+    copy_src_alpha(u, src_addr, stride, w, h);
     finish_channel_dl(phost);
 
     /* Released at the op scope's close sync */
@@ -644,13 +652,13 @@ bool lv_draw_eve5_blend_additive(lv_draw_eve5_unit_t * u, lv_layer_t * layer,
     int n = luminance ? 1 : 3;
 
     /* DL1: temp.c = max(D.c*a - P.c, 0) */
-    begin_channel_dl(phost, temp_addr, aw, ah, w, h);
+    begin_channel_dl(u, temp_addr, aw, ah, w, h);
     for(int i = 0; i < n; i++) {
         const blend_channel_t * ch = &chs[i];
-        load_channel(phost, dst_addr, stride, w, h, ch->channel);
+        load_channel(u, dst_addr, stride, w, h, ch->channel);
         invert_alpha(phost, w, h);
-        multiply_channel(phost, src_addr, stride, w, h, ALPHA);
-        subtract_channel(phost, src_addr, stride, w, h, ch->channel);
+        multiply_channel(u, src_addr, stride, w, h, ALPHA);
+        subtract_channel(u, src_addr, stride, w, h, ch->channel);
         store_alpha(phost, w, h, ch->r_mask, ch->g_mask, ch->b_mask, false);
     }
     finish_channel_dl(phost);
@@ -671,24 +679,24 @@ bool lv_draw_eve5_blend_additive(lv_draw_eve5_unit_t * u, lv_layer_t * layer,
         return false;
     }
 
-    begin_channel_dl(phost, result_addr, aw, ah, w, h);
+    begin_channel_dl(u, result_addr, aw, ah, w, h);
     for(int i = 0; i < n; i++) {
         const blend_channel_t * ch = &chs[i];
-        load_channel(phost, dst_addr, stride, w, h, ch->channel);
+        load_channel(u, dst_addr, stride, w, h, ch->channel);
         invert_alpha(phost, w, h);
         /* Times 1 - a: the swizzled src has a as its alpha */
         EVE_CoDl_blendFunc(phost, ZERO, ONE_MINUS_SRC_ALPHA);
-        setup_swizzled_blit(phost, src_addr, stride, w, h, ALPHA);
+        setup_swizzled_blit(u, src_addr, stride, w, h, ALPHA);
         draw_bitmap(phost);
         /* temp holds the luminance result in all three channels */
-        add_channel(phost, temp_addr, stride, w, h, luminance ? RED : ch->channel);
+        add_channel(u, temp_addr, stride, w, h, luminance ? RED : ch->channel);
         invert_alpha(phost, w, h);
         store_alpha(phost, w, h, ch->r_mask, ch->g_mask, ch->b_mask, false);
     }
     /* alpha = a + d.a*(1 - a) */
     EVE_CoDl_colorMask(phost, 0, 0, 0, 1);
     EVE_CoDl_blendFunc(phost, ONE, ZERO);
-    setup_blit(phost, dst_addr, stride, w, h);
+    setup_blit(u, dst_addr, stride, w, h);
     draw_bitmap(phost);
     EVE_CoDl_blendFunc(phost, ONE, ONE_MINUS_SRC_ALPHA);
     EVE_CoDl_bitmapSource(phost, src_addr);

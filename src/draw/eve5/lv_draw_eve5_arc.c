@@ -67,15 +67,16 @@ static uint16_t degrees_to_furmans(int32_t degrees)
  * Set up bitmap state for arc image source.
  * Caller must then begin(BITMAPS) + vertex2f + end.
  */
-static void setup_arc_image(EVE_HalContext *phost, uint32_t addr, uint16_t eve_format,
+static void setup_arc_image(lv_draw_eve5_unit_t * u, uint32_t addr, uint16_t eve_format,
                             int32_t stride, int32_t w, int32_t h, uint32_t palette_addr,
                             bool sample_as_luminance)
 {
-    EVE_CoDl_bitmapHandle(phost, EVE_CO_SCRATCH_HANDLE);
+    EVE_HalContext * phost = u->hal;
+    EVE_CoDl_bitmapHandle(phost, u->bitmap_scratch.handle);
     EVE_CoDl_bitmapSource(phost, addr);
     set_palette_if_needed(phost, eve_format, palette_addr);
-    eve5_set_image_bitmap_layout(phost, eve_format, stride, h, sample_as_luminance);
-    EVE_CoDl_bitmapSize(phost, NEAREST, BORDER, BORDER, w, h);
+    eve5_set_image_bitmap_layout(u, eve_format, stride, h, sample_as_luminance);
+    lv_draw_eve5_bitmap_size(u, NEAREST, BORDER, BORDER, w, h);
     EVE_CoDl_bitmapTransform_identity(phost);
 }
 
@@ -196,7 +197,7 @@ static void draw_arc_stencil(lv_draw_eve5_unit_t * u, const lv_draw_task_t * t,
         if(has_img && img_has_alpha) {
             EVE_CoDl_colorA(phost, 255);
             EVE_CoDl_blendFunc(phost, ZERO, SRC_ALPHA);
-            setup_arc_image(phost, img_addr, img_eve_format, img_eve_stride, img_w, img_h, img_palette_addr, img_sample_as_luminance);
+            setup_arc_image(u, img_addr, img_eve_format, img_eve_stride, img_w, img_h, img_palette_addr, img_sample_as_luminance);
             EVE_CoDl_begin(phost, BITMAPS);
             EVE_CoDl_vertex2f_0(phost, img_x, img_y);
             EVE_CoDl_end(phost);
@@ -208,7 +209,7 @@ static void draw_arc_stencil(lv_draw_eve5_unit_t * u, const lv_draw_task_t * t,
         if(has_img && !alpha_to_rgb) {
             EVE_CoDl_colorRgb(phost, 255, 255, 255);
             EVE_CoDl_colorA(phost, 255);
-            setup_arc_image(phost, img_addr, img_eve_format, img_eve_stride, img_w, img_h, img_palette_addr, img_sample_as_luminance);
+            setup_arc_image(u, img_addr, img_eve_format, img_eve_stride, img_w, img_h, img_palette_addr, img_sample_as_luminance);
             EVE_CoDl_begin(phost, BITMAPS);
             EVE_CoDl_vertex2f_0(phost, img_x, img_y);
             EVE_CoDl_end(phost);
@@ -338,7 +339,7 @@ static void draw_arc_stencil(lv_draw_eve5_unit_t * u, const lv_draw_task_t * t,
         EVE_CoDl_stencilFunc(phost, ALWAYS, 0x01, 0x01);
         EVE_CoDl_colorA(phost, 255);
         EVE_CoDl_blendFunc(phost, ZERO, SRC_ALPHA);
-        setup_arc_image(phost, img_addr, img_eve_format, img_eve_stride, img_w, img_h, img_palette_addr, img_sample_as_luminance);
+        setup_arc_image(u, img_addr, img_eve_format, img_eve_stride, img_w, img_h, img_palette_addr, img_sample_as_luminance);
         EVE_CoDl_begin(phost, BITMAPS);
         EVE_CoDl_vertex2f_0(phost, img_x, img_y);
         EVE_CoDl_end(phost);
@@ -350,7 +351,7 @@ static void draw_arc_stencil(lv_draw_eve5_unit_t * u, const lv_draw_task_t * t,
     if(has_img && !alpha_to_rgb) {
         EVE_CoDl_colorRgb(phost, 255, 255, 255);
         EVE_CoDl_colorA(phost, 255);
-        setup_arc_image(phost, img_addr, img_eve_format, img_eve_stride, img_w, img_h, img_palette_addr, img_sample_as_luminance);
+        setup_arc_image(u, img_addr, img_eve_format, img_eve_stride, img_w, img_h, img_palette_addr, img_sample_as_luminance);
         EVE_CoDl_begin(phost, BITMAPS);
         EVE_CoDl_vertex2f_0(phost, img_x, img_y);
         EVE_CoDl_end(phost);
@@ -614,7 +615,7 @@ void lv_draw_eve5_alpha_draw_arc(lv_draw_eve5_unit_t * u, const lv_draw_task_t *
     EVE_CoDl_colorA(phost, dsc->opa);
     if(img_has_alpha) {
         /* ARGB image: blit through stencil so per-pixel alpha modulates coverage */
-        setup_arc_image(phost, img_addr, img_eve_format, img_eve_stride, img_w, img_h, img_palette_addr, img_sample_as_luminance);
+        setup_arc_image(u, img_addr, img_eve_format, img_eve_stride, img_w, img_h, img_palette_addr, img_sample_as_luminance);
         EVE_CoDl_begin(phost, BITMAPS);
         EVE_CoDl_vertex2f_0(phost, img_x, img_y);
         EVE_CoDl_end(phost);

@@ -539,8 +539,8 @@ typedef struct {
  * binding (e.g., the address of a per-rom-font slot, or an lv_font_t *).
  *
  * Reserved slots are excluded from the LRU list and never returned by
- * alloc: the EVE_CO_SCRATCH_HANDLE (trashed on coprocessor command entry)
- * and any slot index >= the runtime BITMAP_HANDLE_MASK + 1.
+ * alloc: the EVE_CO_SCRATCH_HANDLE (trashed on coprocessor command entry),
+ * the draw unit's own scratch handle, and slots above the runtime handle limit.
  */
 typedef struct {
     void * owner;       /**< NULL = unowned. Owner identity tested by handle_check. */
@@ -563,6 +563,17 @@ typedef struct {
     uint8_t lru_head;   /**< MRU end; 0xFF if pool is empty */
     uint8_t lru_tail;   /**< LRU end (next alloc target); 0xFF if pool is empty */
 } lv_draw_eve5_handle_pool_t;
+
+/* Layout and size belong to the handle, not the SAVE_CONTEXT stack. Cache
+ * encoded words separately so unchanged high bits can be omitted even when
+ * the low bits change. Zero is an invalid opcode for all four words. */
+typedef struct {
+    uint32_t layout;
+    uint32_t layout_high;
+    uint32_t size;
+    uint32_t size_high;
+    uint8_t handle;
+} lv_draw_eve5_bitmap_scratch_t;
 
 /* ROM font cache entry, indexed by (rom_idx - LV_DRAW_EVE5_ROM_FONT_MIN).
  * The slot's address serves as a stable per-rom_idx owner pointer for the
@@ -628,8 +639,10 @@ typedef struct {
 #endif
 
     /* Bitmap handle pool: LRU allocator over the chip's bitmap handles, with
-     * owner-identity tracking for eviction detection. CO scratch is reserved. */
+     * owner-identity tracking for eviction detection. Both scratch handles
+     * are reserved and cannot be evicted by fonts. */
     lv_draw_eve5_handle_pool_t handle_pool;
+    lv_draw_eve5_bitmap_scratch_t bitmap_scratch;
 
     /* ROM font cache. Each slot tracks the last bitmap handle the matching
      * rom_idx claimed from handle_pool. Sized at compile-time CAP; init walks
@@ -955,6 +968,18 @@ static inline uint32_t eve5_rt_surface_size(uint16_t eve_format, uint32_t stride
     return stride * aligned_h;
 }
 
+/* Start every draw-unit DL through this wrapper. It invalidates the bitmap
+ * cache so the list establishes its own initial state, including when a NORT
+ * display list is replayed on subsequent scanouts. */
+void lv_draw_eve5_dl_start(lv_draw_eve5_unit_t * u);
+void lv_draw_eve5_bitmap_invalidate(lv_draw_eve5_unit_t * u);
+
+/* The LVGL scratch handle must be selected before setting its source,
+ * layout or size. All writes to its layout/size must use these helpers. */
+void lv_draw_eve5_bitmap_layout(lv_draw_eve5_unit_t * u, uint8_t format, uint16_t stride, uint16_t height);
+void lv_draw_eve5_bitmap_size(lv_draw_eve5_unit_t * u, uint8_t filter, uint8_t wrapx, uint8_t wrapy,
+                              uint16_t width, uint16_t height);
+
 /**
  * Set bitmap layout with correct GLFORMAT handling.
  * Extended formats (ASTC, etc.) use GLFORMAT + BITMAP_EXT_FORMAT + identity swizzle.
@@ -962,19 +987,21 @@ static inline uint32_t eve5_rt_surface_size(uint16_t eve_format, uint32_t stride
  * Pre-BT815 builds have no GLFORMAT and never produce extended-format bitmaps,
  * so the extended branch compiles out.
  */
-static inline void eve5_set_bitmap_layout(EVE_HalContext *phost, uint16_t eve_format,
+static inline void eve5_set_bitmap_layout(lv_draw_eve5_unit_t * u, uint16_t eve_format,
                                           int32_t stride, int32_t height)
 {
+    EVE_HalContext * phost = u->hal;
+    LV_UNUSED(phost);
 #if (EVE_SUPPORT_CHIPID >= EVE_BT815) || defined(EVE_MULTI_GRAPHICS_TARGET)
     if(eve5_is_extended_format(eve_format)) {
-        EVE_CoDl_bitmapLayout(phost, GLFORMAT, stride, height);
+        lv_draw_eve5_bitmap_layout(u, GLFORMAT, stride, height);
         EVE_CoDl_bitmapExtFormat(phost, eve_format);
         EVE_CoDl_bitmapSwizzle(phost, RED, GREEN, BLUE, ALPHA);
     }
     else
 #endif
     {
-        EVE_CoDl_bitmapLayout(phost, (uint8_t)eve_format, stride, height);
+        lv_draw_eve5_bitmap_layout(u, (uint8_t)eve_format, stride, height);
     }
 }
 
@@ -1002,15 +1029,17 @@ static inline void eve5_set_bitmap_layout(EVE_HalContext *phost, uint16_t eve_fo
  * Every other case (extended formats, RGB / ARGB / paletted sources, or
  * sample_as_luminance=false) falls through to eve5_set_bitmap_layout.
  */
-static inline void eve5_set_image_bitmap_layout(EVE_HalContext *phost,
+static inline void eve5_set_image_bitmap_layout(lv_draw_eve5_unit_t * u,
                                                 uint16_t eve_format,
                                                 int32_t stride, int32_t height,
                                                 bool sample_as_luminance)
 {
+    EVE_HalContext * phost = u->hal;
+    LV_UNUSED(phost);
 #if (EVE_SUPPORT_CHIPID >= EVE_BT815) || defined(EVE_MULTI_GRAPHICS_TARGET)
     if(sample_as_luminance && EVE_CHIPID >= EVE_BT815
        && (eve_format == L8 || eve_format == L4 || eve_format == L2 || eve_format == L1)) {
-        EVE_CoDl_bitmapLayout(phost, GLFORMAT, stride, height);
+        lv_draw_eve5_bitmap_layout(u, GLFORMAT, stride, height);
         EVE_CoDl_bitmapExtFormat(phost, eve_format);
         EVE_CoDl_bitmapSwizzle(phost, ALPHA, ALPHA, ALPHA, RED);
         return;
@@ -1018,7 +1047,7 @@ static inline void eve5_set_image_bitmap_layout(EVE_HalContext *phost,
 #else
     (void)sample_as_luminance;
 #endif
-    eve5_set_bitmap_layout(phost, eve_format, stride, height);
+    eve5_set_bitmap_layout(u, eve_format, stride, height);
 }
 
 /*
@@ -1259,7 +1288,7 @@ bool lv_draw_eve5_try_load_flash_image(lv_draw_eve5_unit_t * u, const void * src
  **********************/
 
 #if LV_DRAW_EVE5_L8_EXACT
-void lv_draw_eve5_draw_luminance(EVE_HalContext * phost, uint16_t eve_format, uint32_t stride,
+void lv_draw_eve5_draw_luminance(lv_draw_eve5_unit_t * u, uint16_t eve_format, uint32_t stride,
                                  int32_t w, int32_t h);
 #endif
 
@@ -1302,7 +1331,7 @@ void draw_circle_subpx(lv_draw_eve5_unit_t * u, int32_t cx2, int32_t cy2, int32_
 void build_triangle_stencil(EVE_HalContext *phost, const lv_point_t p[3]);
 bool setup_gradient_bitmap(lv_draw_eve5_unit_t * u, const lv_grad_dsc_t * grad,
                            lv_opa_t opa, int32_t w, int32_t h, bool alpha_to_rgb);
-void build_colorkey_stencil(EVE_HalContext *phost, const lv_image_colorkey_t * colorkey,
+void build_colorkey_stencil(lv_draw_eve5_unit_t * u, const lv_image_colorkey_t * colorkey,
                             uint16_t eve_format, int32_t eve_stride, int32_t layout_h,
                             int32_t vx, int32_t vy);
 
@@ -1327,7 +1356,7 @@ bool compute_image_skew(image_skew_t * out, int32_t rotation, int32_t scale_x, i
                         int32_t skew_x, int32_t skew_y, int32_t pivot_x, int32_t pivot_y,
                         int32_t src_w, int32_t src_h, int32_t img_x, int32_t img_y,
                         int32_t draw_vx, int32_t draw_vy);
-void apply_image_skew(EVE_HalContext *phost, const image_skew_t * skew,
+void apply_image_skew(lv_draw_eve5_unit_t * u, const image_skew_t * skew,
                       uint8_t bmp_filter, int32_t tile_w, int32_t tile_h);
 
 /**********************

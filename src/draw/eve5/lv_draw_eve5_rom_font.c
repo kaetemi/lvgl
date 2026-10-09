@@ -5,7 +5,7 @@
  *
  * The handle pool tracks ownership of every bitmap handle. Each slot stores
  * an owner pointer plus prev/next links into a doubly-linked LRU list.
- * Reserved slots (CO scratch, slots above the runtime BITMAP_HANDLE_MASK on
+ * Reserved slots (CO and LVGL scratch, slots above the runtime BITMAP_HANDLE_MASK on
  * smaller chips) are excluded from the list and never allocated. Allocation
  * is either preferred (force-take a specific handle, evicting current owner)
  * or LRU (pop the tail). Both move the slot to the MRU head and overwrite
@@ -100,6 +100,15 @@ void lv_draw_eve5_handle_pool_init(lv_draw_eve5_unit_t * u)
     uint8_t scratch = (uint8_t)EVE_CO_SCRATCH_HANDLE;
     if(scratch < cap) pool->slots[scratch].reserved = true;
 
+    /* LVGL owns a separate scratch handle whose bitmap state can be cached.
+     * Use a low handle outside the native ROM font range (16 and above),
+     * accounting for a caller-configured coprocessor scratch handle. */
+    uint8_t lvgl_scratch = 0;
+    while(pool->slots[lvgl_scratch].reserved) lvgl_scratch++;
+    pool->slots[lvgl_scratch].reserved = true;
+    u->bitmap_scratch.handle = lvgl_scratch;
+    lv_draw_eve5_bitmap_invalidate(u);
+
     /* Build the LRU list across non-reserved slots. Initial order is
      * ascending by index; all entries are unowned so any ordering is fine. */
     pool->lru_head = 0xFFu;
@@ -154,6 +163,7 @@ bool lv_draw_eve5_handle_check(const lv_draw_eve5_unit_t * u, uint8_t handle, co
 
 void lv_draw_eve5_handle_invalidate_all(lv_draw_eve5_unit_t * u)
 {
+    lv_draw_eve5_bitmap_invalidate(u);
     lv_draw_eve5_handle_pool_t * pool = &u->handle_pool;
     for(uint8_t i = 0; i < LV_DRAW_EVE5_HANDLE_CAP; i++) {
         if(!pool->slots[i].reserved) {
@@ -238,8 +248,9 @@ uint8_t lv_draw_eve5_rom_font_resolve(lv_draw_eve5_unit_t * u, uint8_t rom_idx)
 void lv_draw_eve5_rom_font_invalidate(lv_draw_eve5_unit_t * u)
 {
     /* Coprocessor reset: every binding is gone. The handle pool's owner
-     * slots are cleared too so previous holders' handle_check returns false. */
-    lv_draw_eve5_handle_invalidate_all(u);
+     * slots are cleared too so previous holders' handle_check returns false.
+     * Rebuild reservations because reset restores the CO scratch default. */
+    lv_draw_eve5_handle_pool_init(u);
     for(uint8_t i = 0; i < LV_DRAW_EVE5_ROM_FONT_NBCAP; i++) {
         u->rom_font_slots[i].handle = 0xFFu;
     }

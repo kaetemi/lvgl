@@ -80,27 +80,27 @@ static bool alpha_pass_build_colorkey_gate(lv_draw_eve5_unit_t * u,
     }
 
     /* Set up source bitmap for stencil sampling */
-    EVE_CoDl_bitmapHandle(phost, EVE_CO_SCRATCH_HANDLE);
+    EVE_CoDl_bitmapHandle(phost, u->bitmap_scratch.handle);
     EVE_CoDl_bitmapSource(phost, ram_g_addr);
     set_palette_if_needed(phost, eve_format, palette_addr);
-    eve5_set_image_bitmap_layout(phost, eve_format, eve_stride, layout_h, sample_as_luminance);
+    eve5_set_image_bitmap_layout(u, eve_format, eve_stride, layout_h, sample_as_luminance);
     uint8_t bmp_filter = dsc->antialias ? BILINEAR : NEAREST;
     bool tile_stamps = dsc->tile && eve5_image_tile_needs_stamps(src_w, src_h);
     int32_t tile_extent_w = dsc->tile ? (t->area.x2 - dsc->image_area.x1 + 1) : 0;
     int32_t tile_extent_h = dsc->tile ? (t->area.y2 - dsc->image_area.y1 + 1) : 0;
     if(dsc->tile && !tile_stamps) {
-        EVE_CoDl_bitmapSize(phost, bmp_filter, REPEAT, REPEAT,
+        lv_draw_eve5_bitmap_size(u, bmp_filter, REPEAT, REPEAT,
                             LV_MIN(tile_extent_w, 2048), LV_MIN(tile_extent_h, 2048));
     }
     else {
-        EVE_CoDl_bitmapSize(phost, bmp_filter, BORDER, BORDER, src_w, src_h);
+        lv_draw_eve5_bitmap_size(u, bmp_filter, BORDER, BORDER, src_w, src_h);
     }
     if(!has_skew && !has_transform)
         EVE_CoDl_bitmapTransform_identity(phost);
 
     /* Apply bitmap transform */
     if(has_skew) {
-        apply_image_skew(phost, &skew, bmp_filter,
+        apply_image_skew(u, &skew, bmp_filter,
                          dsc->tile ? lv_area_get_width(&dsc->image_area) : 0,
                          dsc->tile ? lv_area_get_height(&dsc->image_area) : 0);
     }
@@ -119,14 +119,14 @@ static bool alpha_pass_build_colorkey_gate(lv_draw_eve5_unit_t * u,
         EVE_CoCmd_translate(phost, -F16(dsc->pivot.x), -F16(dsc->pivot.y));
         EVE_CoCmd_setMatrix(phost);
         EVE_CoCmd_loadIdentity(phost);
-        EVE_CoDl_bitmapSize(phost, bmp_filter, BORDER, BORDER,
+        lv_draw_eve5_bitmap_size(u, bmp_filter, BORDER, BORDER,
                             LV_MIN(lv_area_get_width(eve5_transform_area(t)), 2048),
                             LV_MIN(lv_area_get_height(eve5_transform_area(t)), 2048));
     }
 
     /* Build 6-pass colorkey stencil */
     EVE_CoDl_clear(phost, 0, 1, 0);
-    build_colorkey_stencil(phost, dsc->colorkey, eve_format, eve_stride, layout_h, draw_vx, draw_vy);
+    build_colorkey_stencil(u, dsc->colorkey, eve_format, eve_stride, layout_h, draw_vx, draw_vy);
 
     /* Restore alpha pass drawing state with stencil gate */
     EVE_CoDl_alphaFunc(phost, ALWAYS, 0);
@@ -284,7 +284,7 @@ void lv_draw_eve5_hal_alpha_draw_image(lv_draw_eve5_unit_t * u, const lv_draw_ta
                     int32_t mask_draw_x = clip_x1 + (img_w - mask_bmp_w) / 2;
                     int32_t mask_draw_y = clip_y1 + (img_h - mask_bmp_h) / 2;
 
-                    EVE_CoDl_bitmapHandle(phost, EVE_CO_SCRATCH_HANDLE);
+                    EVE_CoDl_bitmapHandle(phost, u->bitmap_scratch.handle);
                     EVE_CoDl_bitmapSource(phost, mask_bmp_addr);
                     set_palette_if_needed(phost, mask_bmp_format, mask_bmp_palette_addr);
                     /* ARGB8/PALETTEDARGB8: use GLFORMAT + swizzle to extract RED as alpha
@@ -292,36 +292,36 @@ void lv_draw_eve5_hal_alpha_draw_image(lv_draw_eve5_unit_t * u, const lv_draw_ta
                      * L8/A8: BT820 natively decodes as (255,255,255,L) so no swizzle is needed. */
 #if (EVE_SUPPORT_CHIPID >= EVE_BT820)
                     if(mask_bmp_format == ARGB8 || mask_bmp_format == PALETTEDARGB8) {
-                        EVE_CoDl_bitmapLayout(phost, GLFORMAT, mask_bmp_stride, mask_bmp_h);
+                        lv_draw_eve5_bitmap_layout(u, GLFORMAT, mask_bmp_stride, mask_bmp_h);
                         EVE_CoDl_bitmapExtFormat(phost, mask_bmp_format);
                         EVE_CoDl_bitmapSwizzle(phost, ZERO, ZERO, ZERO, RED);
                     }
                     else
 #endif
                     {
-                        EVE_CoDl_bitmapLayout(phost, (uint8_t)mask_bmp_format, mask_bmp_stride, mask_bmp_h);
+                        lv_draw_eve5_bitmap_layout(u, (uint8_t)mask_bmp_format, mask_bmp_stride, mask_bmp_h);
                     }
-                    EVE_CoDl_bitmapSize(phost, NEAREST, BORDER, BORDER, mask_bmp_w, mask_bmp_h);
+                    lv_draw_eve5_bitmap_size(u, NEAREST, BORDER, BORDER, mask_bmp_w, mask_bmp_h);
                     EVE_CoDl_begin(phost, BITMAPS);
                     EVE_CoDl_vertex2f_0(phost, mask_draw_x, mask_draw_y);
                     EVE_CoDl_end(phost);
                 }
                 else {
                     /* Draw ARGB source bitmap through clip stencil for per-pixel alpha */
-                    EVE_CoDl_bitmapHandle(phost, EVE_CO_SCRATCH_HANDLE);
+                    EVE_CoDl_bitmapHandle(phost, u->bitmap_scratch.handle);
                     EVE_CoDl_bitmapSource(phost, ram_g_addr);
                     set_palette_if_needed(phost, eve_format, palette_addr);
-                    eve5_set_image_bitmap_layout(phost, eve_format, eve_stride, layout_h, sample_as_luminance);
+                    eve5_set_image_bitmap_layout(u, eve_format, eve_stride, layout_h, sample_as_luminance);
                     uint8_t bmp_filter = dsc->antialias ? BILINEAR : NEAREST;
                     bool tile_stamps = dsc->tile && eve5_image_tile_needs_stamps(src_w, src_h);
                     int32_t tile_extent_w = dsc->tile ? (t->area.x2 - dsc->image_area.x1 + 1) : 0;
                     int32_t tile_extent_h = dsc->tile ? (t->area.y2 - dsc->image_area.y1 + 1) : 0;
                     if(dsc->tile && !tile_stamps) {
-                        EVE_CoDl_bitmapSize(phost, bmp_filter, REPEAT, REPEAT,
+                        lv_draw_eve5_bitmap_size(u, bmp_filter, REPEAT, REPEAT,
                                             LV_MIN(tile_extent_w, 2048), LV_MIN(tile_extent_h, 2048));
                     }
                     else {
-                        EVE_CoDl_bitmapSize(phost, bmp_filter, BORDER, BORDER, src_w, src_h);
+                        lv_draw_eve5_bitmap_size(u, bmp_filter, BORDER, BORDER, src_w, src_h);
                     }
 
                     bool has_transform = (dsc->rotation != 0 || dsc->scale_x != LV_SCALE_NONE
@@ -347,7 +347,7 @@ void lv_draw_eve5_hal_alpha_draw_image(lv_draw_eve5_unit_t * u, const lv_draw_ta
                             EVE_CoDl_restoreContext(phost);
                             return;
                         }
-                        apply_image_skew(phost, &skew, bmp_filter,
+                        apply_image_skew(u, &skew, bmp_filter,
                                          dsc->tile ? lv_area_get_width(&dsc->image_area) : 0,
                                          dsc->tile ? lv_area_get_height(&dsc->image_area) : 0);
                     }
@@ -366,7 +366,7 @@ void lv_draw_eve5_hal_alpha_draw_image(lv_draw_eve5_unit_t * u, const lv_draw_ta
                         EVE_CoCmd_translate(phost, -F16(dsc->pivot.x), -F16(dsc->pivot.y));
                         EVE_CoCmd_setMatrix(phost);
                         EVE_CoCmd_loadIdentity(phost);
-                        EVE_CoDl_bitmapSize(phost, bmp_filter, BORDER, BORDER,
+                        lv_draw_eve5_bitmap_size(u, bmp_filter, BORDER, BORDER,
                                             LV_MIN(lv_area_get_width(eve5_transform_area(t)), 2048),
                                             LV_MIN(lv_area_get_height(eve5_transform_area(t)), 2048));
                     }
@@ -447,22 +447,22 @@ void lv_draw_eve5_hal_alpha_draw_image(lv_draw_eve5_unit_t * u, const lv_draw_ta
                     EVE_CoDl_bitmapTransform_identity(phost);
                     EVE_CoDl_vertexFormat(phost, 0);
                     EVE_CoDl_saveContext(phost);
-                    EVE_CoDl_bitmapHandle(phost, EVE_CO_SCRATCH_HANDLE);
+                    EVE_CoDl_bitmapHandle(phost, u->bitmap_scratch.handle);
                     EVE_CoDl_bitmapSource(phost, mask_addr);
                     set_palette_if_needed(phost, mask_eve_format, mask_palette_addr);
                     /* ARGB8/PALETTEDARGB8: use GLFORMAT + swizzle to extract RED as alpha */
 #if (EVE_SUPPORT_CHIPID >= EVE_BT820)
                     if(mask_eve_format == ARGB8 || mask_eve_format == PALETTEDARGB8) {
-                        EVE_CoDl_bitmapLayout(phost, GLFORMAT, mask_eve_stride, mask_h);
+                        lv_draw_eve5_bitmap_layout(u, GLFORMAT, mask_eve_stride, mask_h);
                         EVE_CoDl_bitmapExtFormat(phost, mask_eve_format);
                         EVE_CoDl_bitmapSwizzle(phost, ZERO, ZERO, ZERO, RED);
                     }
                     else
 #endif
                     {
-                        EVE_CoDl_bitmapLayout(phost, (uint8_t)mask_eve_format, mask_eve_stride, mask_h);
+                        lv_draw_eve5_bitmap_layout(u, (uint8_t)mask_eve_format, mask_eve_stride, mask_h);
                     }
-                    EVE_CoDl_bitmapSize(phost, NEAREST, BORDER, BORDER, mask_w, mask_h);
+                    lv_draw_eve5_bitmap_size(u, NEAREST, BORDER, BORDER, mask_w, mask_h);
                     EVE_CoDl_colorA(phost, dsc->opa);
                     EVE_CoDl_begin(phost, BITMAPS);
                     EVE_CoDl_vertex2f_0(phost, mask_draw_x, mask_draw_y);
@@ -485,20 +485,20 @@ void lv_draw_eve5_hal_alpha_draw_image(lv_draw_eve5_unit_t * u, const lv_draw_ta
                           || dsc->skew_x != 0 || dsc->skew_y != 0);
     bool has_skew = (dsc->skew_x != 0 || dsc->skew_y != 0);
 
-    EVE_CoDl_bitmapHandle(phost, EVE_CO_SCRATCH_HANDLE);
+    EVE_CoDl_bitmapHandle(phost, u->bitmap_scratch.handle);
     EVE_CoDl_bitmapSource(phost, ram_g_addr);
     set_palette_if_needed(phost, eve_format, palette_addr);
-    eve5_set_image_bitmap_layout(phost, eve_format, eve_stride, layout_h, sample_as_luminance);
+    eve5_set_image_bitmap_layout(u, eve_format, eve_stride, layout_h, sample_as_luminance);
     uint8_t bmp_filter = dsc->antialias ? BILINEAR : NEAREST;
     bool tile_stamps = dsc->tile && eve5_image_tile_needs_stamps(src_w, src_h);
     int32_t tile_extent_w = dsc->tile ? (t->area.x2 - dsc->image_area.x1 + 1) : 0;
     int32_t tile_extent_h = dsc->tile ? (t->area.y2 - dsc->image_area.y1 + 1) : 0;
     if(dsc->tile && !tile_stamps) {
-        EVE_CoDl_bitmapSize(phost, bmp_filter, REPEAT, REPEAT,
+        lv_draw_eve5_bitmap_size(u, bmp_filter, REPEAT, REPEAT,
                             LV_MIN(tile_extent_w, 2048), LV_MIN(tile_extent_h, 2048));
     }
     else {
-        EVE_CoDl_bitmapSize(phost, bmp_filter, BORDER, BORDER, src_w, src_h);
+        lv_draw_eve5_bitmap_size(u, bmp_filter, BORDER, BORDER, src_w, src_h);
     }
 
     int32_t draw_vx, draw_vy;
@@ -531,7 +531,7 @@ void lv_draw_eve5_hal_alpha_draw_image(lv_draw_eve5_unit_t * u, const lv_draw_ta
     }
 
     if(has_skew) {
-        apply_image_skew(phost, &skew, bmp_filter,
+        apply_image_skew(u, &skew, bmp_filter,
                          dsc->tile ? lv_area_get_width(&dsc->image_area) : 0,
                          dsc->tile ? lv_area_get_height(&dsc->image_area) : 0);
     }
@@ -549,14 +549,14 @@ void lv_draw_eve5_hal_alpha_draw_image(lv_draw_eve5_unit_t * u, const lv_draw_ta
         EVE_CoCmd_setMatrix(phost);
         EVE_CoCmd_loadIdentity(phost);
         /* Expand bitmapSize to cover rotated/scaled output */
-        EVE_CoDl_bitmapSize(phost, bmp_filter, BORDER, BORDER,
+        lv_draw_eve5_bitmap_size(u, bmp_filter, BORDER, BORDER,
                             LV_MIN(lv_area_get_width(eve5_transform_area(t)), 2048),
                             LV_MIN(lv_area_get_height(eve5_transform_area(t)), 2048));
     }
 
     if(has_colorkey) {
         EVE_CoDl_clear(phost, 0, 1, 0);
-        build_colorkey_stencil(phost, dsc->colorkey, eve_format, eve_stride, layout_h, draw_vx, draw_vy);
+        build_colorkey_stencil(u, dsc->colorkey, eve_format, eve_stride, layout_h, draw_vx, draw_vy);
         EVE_CoDl_alphaFunc(phost, ALWAYS, 0);
         EVE_CoDl_colorMask(phost, 0, 0, 0, 1);
         EVE_CoDl_stencilFunc(phost, NOTEQUAL, 6, 0xFF);

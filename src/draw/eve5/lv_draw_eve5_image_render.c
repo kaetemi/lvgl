@@ -44,12 +44,14 @@ static lv_color_t image_tint(const lv_draw_image_dsc_t * dsc, bool alpha_only)
  * a drop shadow, is rendered in a color format: it samples as white with its
  * alpha, as an L8 image does. An alpha-only source drawn premultiplied
  * (alpha_premultiplied) samples its alpha in every channel. */
-static void set_image_layout(EVE_HalContext * phost, uint16_t eve_format, int32_t stride, int32_t height,
+static void set_image_layout(lv_draw_eve5_unit_t * u, uint16_t eve_format, int32_t stride, int32_t height,
                              bool sample_as_luminance, bool alpha_layer, bool alpha_premultiplied)
 {
+    EVE_HalContext * phost = u->hal;
+    LV_UNUSED(phost);
 #if (EVE_SUPPORT_CHIPID >= EVE_BT815) || defined(EVE_MULTI_GRAPHICS_TARGET)
     if(alpha_premultiplied) {
-        EVE_CoDl_bitmapLayout(phost, GLFORMAT, stride, height);
+        lv_draw_eve5_bitmap_layout(u, GLFORMAT, stride, height);
         EVE_CoDl_bitmapExtFormat(phost, eve_format);
         EVE_CoDl_bitmapSwizzle(phost, ALPHA, ALPHA, ALPHA, ALPHA);
         return;
@@ -59,7 +61,7 @@ static void set_image_layout(EVE_HalContext * phost, uint16_t eve_format, int32_
 #endif
 #if (EVE_SUPPORT_CHIPID >= EVE_BT820)
     if(alpha_layer) {
-        EVE_CoDl_bitmapLayout(phost, GLFORMAT, stride, height);
+        lv_draw_eve5_bitmap_layout(u, GLFORMAT, stride, height);
         EVE_CoDl_bitmapExtFormat(phost, eve_format);
         EVE_CoDl_bitmapSwizzle(phost, ONE, ONE, ONE, ALPHA);
         return;
@@ -67,7 +69,7 @@ static void set_image_layout(EVE_HalContext * phost, uint16_t eve_format, int32_
 #else
     LV_UNUSED(alpha_layer);
 #endif
-    eve5_set_image_bitmap_layout(phost, eve_format, stride, height, sample_as_luminance);
+    eve5_set_image_bitmap_layout(u, eve_format, stride, height, sample_as_luminance);
 }
 
 /* Set up the bitmap transform of an image draw: rotation, scale and skew
@@ -103,7 +105,7 @@ static bool setup_image_transform(lv_draw_eve5_unit_t * u, const lv_draw_task_t 
                                src_w, src_h, x, y, *draw_vx, *draw_vy)) {
             return false;
         }
-        apply_image_skew(phost, &skew, bmp_filter,
+        apply_image_skew(u, &skew, bmp_filter,
                          dsc->tile ? lv_area_get_width(&dsc->image_area) : 0,
                          dsc->tile ? lv_area_get_height(&dsc->image_area) : 0);
         return true;
@@ -121,7 +123,7 @@ static bool setup_image_transform(lv_draw_eve5_unit_t * u, const lv_draw_task_t 
     EVE_CoCmd_translate(phost, -F16(dsc->pivot.x), -F16(dsc->pivot.y));
     EVE_CoCmd_setMatrix(phost);
     EVE_CoCmd_loadIdentity(phost);
-    EVE_CoDl_bitmapSize(phost, bmp_filter, BORDER, BORDER,
+    lv_draw_eve5_bitmap_size(u, bmp_filter, BORDER, BORDER,
                         LV_MIN(lv_area_get_width(transform_area), 2048),
                         LV_MIN(lv_area_get_height(transform_area), 2048));
     return true;
@@ -297,10 +299,10 @@ void lv_draw_eve5_hal_draw_image(lv_draw_eve5_unit_t * u, const lv_draw_task_t *
     }
 
     /* Set up bitmap */
-    EVE_CoDl_bitmapHandle(phost, EVE_CO_SCRATCH_HANDLE);
+    EVE_CoDl_bitmapHandle(phost, u->bitmap_scratch.handle);
     EVE_CoDl_bitmapSource(u->hal, ram_g_addr);
     set_palette_if_needed(u->hal, eve_format, palette_addr);
-    set_image_layout(u->hal, eve_format, eve_stride, layout_h, sample_as_luminance, alpha_layer, alpha_premultiplied);
+    set_image_layout(u, eve_format, eve_stride, layout_h, sample_as_luminance, alpha_layer, alpha_premultiplied);
     uint8_t bmp_filter = dsc->antialias ? BILINEAR : NEAREST;
     bool tile_stamps = dsc->tile && eve5_image_tile_needs_stamps(src_w, src_h);
     /* dsc->image_area is the first-tile origin (src-sized); t->area is the full
@@ -308,11 +310,11 @@ void lv_draw_eve5_hal_draw_image(lv_draw_eve5_unit_t * u, const lv_draw_task_t *
     int32_t tile_extent_w = dsc->tile ? (t->area.x2 - dsc->image_area.x1 + 1) : 0;
     int32_t tile_extent_h = dsc->tile ? (t->area.y2 - dsc->image_area.y1 + 1) : 0;
     if(dsc->tile && !tile_stamps) {
-        EVE_CoDl_bitmapSize(u->hal, bmp_filter, REPEAT, REPEAT,
+        lv_draw_eve5_bitmap_size(u, bmp_filter, REPEAT, REPEAT,
                             LV_MIN(tile_extent_w, 2048), LV_MIN(tile_extent_h, 2048));
     }
     else {
-        EVE_CoDl_bitmapSize(u->hal, bmp_filter, BORDER, BORDER, src_w, src_h);
+        lv_draw_eve5_bitmap_size(u, bmp_filter, BORDER, BORDER, src_w, src_h);
     }
     /* Tile extent to stamp the bitmap over, 0 to draw it once */
     int32_t stamp_w = (tile_stamps && !has_any_transform) ? tile_extent_w : 0;
@@ -376,22 +378,22 @@ void lv_draw_eve5_hal_draw_image(lv_draw_eve5_unit_t * u, const lv_draw_task_t *
             int32_t mask_draw_y = mask_y1 + (img_h - mask_h) / 2;
 
             EVE_CoDl_saveContext(phost);
-            EVE_CoDl_bitmapHandle(phost, EVE_CO_SCRATCH_HANDLE);
+            EVE_CoDl_bitmapHandle(phost, u->bitmap_scratch.handle);
             EVE_CoDl_bitmapSource(phost, mask_ram_g_addr);
             set_palette_if_needed(phost, mask_eve_format, mask_palette_addr);
             /* ARGB8/PALETTEDARGB8: extract RED as alpha (grayscale PNGs decode with R=G=B=gray) */
 #if (EVE_SUPPORT_CHIPID >= EVE_BT820)
             if(mask_eve_format == ARGB8 || mask_eve_format == PALETTEDARGB8) {
-                EVE_CoDl_bitmapLayout(phost, GLFORMAT, mask_eve_stride, mask_h);
+                lv_draw_eve5_bitmap_layout(u, GLFORMAT, mask_eve_stride, mask_h);
                 EVE_CoDl_bitmapExtFormat(phost, mask_eve_format);
                 EVE_CoDl_bitmapSwizzle(phost, ZERO, ZERO, ZERO, RED);
             }
             else
 #endif
             {
-                EVE_CoDl_bitmapLayout(phost, (uint8_t)mask_eve_format, mask_eve_stride, mask_h);
+                lv_draw_eve5_bitmap_layout(u, (uint8_t)mask_eve_format, mask_eve_stride, mask_h);
             }
-            EVE_CoDl_bitmapSize(phost, NEAREST, BORDER, BORDER, mask_w, mask_h);
+            lv_draw_eve5_bitmap_size(u, NEAREST, BORDER, BORDER, mask_w, mask_h);
             EVE_CoDl_colorArgb_ex(phost, 0xFFFFFFFF);
             EVE_CoDl_begin(phost, BITMAPS);
             EVE_CoDl_vertex2f_0(phost, mask_draw_x, mask_draw_y);
@@ -399,16 +401,16 @@ void lv_draw_eve5_hal_draw_image(lv_draw_eve5_unit_t * u, const lv_draw_task_t *
             EVE_CoDl_restoreContext(phost);
 
             /* Re-setup main image bitmap */
-            EVE_CoDl_bitmapHandle(phost, EVE_CO_SCRATCH_HANDLE);
+            EVE_CoDl_bitmapHandle(phost, u->bitmap_scratch.handle);
             EVE_CoDl_bitmapSource(phost, ram_g_addr);
             set_palette_if_needed(phost, eve_format, palette_addr);
-            set_image_layout(phost, eve_format, eve_stride, layout_h, sample_as_luminance, alpha_layer, false);
+            set_image_layout(u, eve_format, eve_stride, layout_h, sample_as_luminance, alpha_layer, false);
             if(dsc->tile && !tile_stamps) {
-                EVE_CoDl_bitmapSize(phost, bmp_filter, REPEAT, REPEAT,
+                lv_draw_eve5_bitmap_size(u, bmp_filter, REPEAT, REPEAT,
                                     LV_MIN(tile_extent_w, 2048), LV_MIN(tile_extent_h, 2048));
             }
             else {
-                EVE_CoDl_bitmapSize(phost, bmp_filter, BORDER, BORDER, src_w, src_h);
+                lv_draw_eve5_bitmap_size(u, bmp_filter, BORDER, BORDER, src_w, src_h);
             }
         }
 
@@ -422,7 +424,7 @@ void lv_draw_eve5_hal_draw_image(lv_draw_eve5_unit_t * u, const lv_draw_task_t *
         /* Colorkey: build stencil mask and punch alpha holes */
         if(dsc->colorkey != NULL) {
             EVE_CoDl_clear(phost, 0, 1, 0);
-            build_colorkey_stencil(phost, dsc->colorkey, eve_format, eve_stride, layout_h, draw_x, draw_y);
+            build_colorkey_stencil(u, dsc->colorkey, eve_format, eve_stride, layout_h, draw_x, draw_y);
             EVE_CoDl_alphaFunc(phost, ALWAYS, 0);
             EVE_CoDl_colorMask(phost, 0, 0, 0, 1);
             EVE_CoDl_stencilFunc(phost, EQUAL, 6, 0xFF);
@@ -618,7 +620,7 @@ void lv_draw_eve5_hal_draw_image(lv_draw_eve5_unit_t * u, const lv_draw_task_t *
 
         if(has_colorkey) {
             EVE_CoDl_clear(phost, 0, 1, 0);
-            build_colorkey_stencil(phost, dsc->colorkey, eve_format, eve_stride, layout_h, draw_vx, draw_vy);
+            build_colorkey_stencil(u, dsc->colorkey, eve_format, eve_stride, layout_h, draw_vx, draw_vy);
             EVE_CoDl_alphaFunc(phost, ALWAYS, 0);
             EVE_CoDl_colorMask(phost, 1, 1, 1, 1);
             EVE_CoDl_stencilFunc(phost, NOTEQUAL, 6, 0xFF);

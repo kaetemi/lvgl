@@ -301,7 +301,7 @@ static bool gaussian_5tap_pass(lv_draw_eve5_unit_t * u,
     int32_t scale_8_8 = downsample ? 0x0200 : 0x0100;
 
     EVE_CoCmd_renderTarget(phost, dst_addr, ARGB8, dst_aw, dst_ah);
-    EVE_CoCmd_dlStart(phost);
+    lv_draw_eve5_dl_start(u);
 
     EVE_CoDl_clearColorRgb(phost, 0, 0, 0);
     EVE_CoDl_clearColorA(phost, 0);
@@ -311,10 +311,10 @@ static bool gaussian_5tap_pass(lv_draw_eve5_unit_t * u,
     EVE_CoDl_scissorSize(phost, dst_w, dst_h);
     EVE_CoDl_vertexFormat(phost, 0);
 
-    EVE_CoDl_bitmapHandle(phost, EVE_CO_SCRATCH_HANDLE);
+    EVE_CoDl_bitmapHandle(phost, u->bitmap_scratch.handle);
     EVE_CoDl_bitmapSource(phost, src_addr);
-    EVE_CoDl_bitmapLayout(phost, ARGB8, src_stride, src_h);
-    EVE_CoDl_bitmapSize(phost, NEAREST, BORDER, BORDER, dst_w, dst_h);
+    lv_draw_eve5_bitmap_layout(u, ARGB8, src_stride, src_h);
+    lv_draw_eve5_bitmap_size(u, NEAREST, BORDER, BORDER, dst_w, dst_h);
 
     EVE_CoDl_bitmapTransform_identity(phost);
     if(horizontal) {
@@ -376,7 +376,7 @@ static bool gaussian_7tap_pass(lv_draw_eve5_unit_t * u,
     EVE_HalContext *phost = u->hal;
 
     EVE_CoCmd_renderTarget(phost, dst_addr, ARGB8, dst_aw, dst_ah);
-    EVE_CoCmd_dlStart(phost);
+    lv_draw_eve5_dl_start(u);
 
     EVE_CoDl_clearColorRgb(phost, 0, 0, 0);
     EVE_CoDl_clearColorA(phost, 0);
@@ -386,10 +386,10 @@ static bool gaussian_7tap_pass(lv_draw_eve5_unit_t * u,
     EVE_CoDl_scissorSize(phost, dst_w, dst_h);
     EVE_CoDl_vertexFormat(phost, 0);
 
-    EVE_CoDl_bitmapHandle(phost, EVE_CO_SCRATCH_HANDLE);
+    EVE_CoDl_bitmapHandle(phost, u->bitmap_scratch.handle);
     EVE_CoDl_bitmapSource(phost, src_addr);
-    EVE_CoDl_bitmapLayout(phost, ARGB8, src_stride, src_h);
-    EVE_CoDl_bitmapSize(phost, NEAREST, BORDER, BORDER, dst_w, dst_h);
+    lv_draw_eve5_bitmap_layout(u, ARGB8, src_stride, src_h);
+    lv_draw_eve5_bitmap_size(u, NEAREST, BORDER, BORDER, dst_w, dst_h);
 
     EVE_CoDl_bitmapTransform_identity(phost);
 
@@ -447,7 +447,7 @@ static bool gaussian_9tap_pass(lv_draw_eve5_unit_t * u,
     EVE_HalContext *phost = u->hal;
 
     EVE_CoCmd_renderTarget(phost, dst_addr, ARGB8, dst_aw, dst_ah);
-    EVE_CoCmd_dlStart(phost);
+    lv_draw_eve5_dl_start(u);
 
     EVE_CoDl_clearColorRgb(phost, 0, 0, 0);
     EVE_CoDl_clearColorA(phost, 0);
@@ -457,10 +457,10 @@ static bool gaussian_9tap_pass(lv_draw_eve5_unit_t * u,
     EVE_CoDl_scissorSize(phost, dst_w, dst_h);
     EVE_CoDl_vertexFormat(phost, 0);
 
-    EVE_CoDl_bitmapHandle(phost, EVE_CO_SCRATCH_HANDLE);
+    EVE_CoDl_bitmapHandle(phost, u->bitmap_scratch.handle);
     EVE_CoDl_bitmapSource(phost, src_addr);
-    EVE_CoDl_bitmapLayout(phost, ARGB8, src_stride, src_h);
-    EVE_CoDl_bitmapSize(phost, NEAREST, BORDER, BORDER, dst_w, dst_h);
+    lv_draw_eve5_bitmap_layout(u, ARGB8, src_stride, src_h);
+    lv_draw_eve5_bitmap_size(u, NEAREST, BORDER, BORDER, dst_w, dst_h);
 
     EVE_CoDl_bitmapTransform_identity(phost);
 
@@ -625,16 +625,16 @@ bool lv_draw_eve5_gaussian_blur(lv_draw_eve5_unit_t * u, lv_layer_t * layer,
         uint32_t src_ofs = (uint32_t)by1 * layer_stride + (uint32_t)bx1 * (uint32_t)layer_bpp;
 
         EVE_CoCmd_renderTarget(phost, extract_addr, ARGB8, paw, pah);
-        EVE_CoCmd_dlStart(phost);
+        lv_draw_eve5_dl_start(u);
 
         EVE_CoDl_clearColorRgb(phost, 0, 0, 0);
         EVE_CoDl_clearColorA(phost, 0);
         EVE_CoDl_clear(phost, 1, 1, 1);
 
         EVE_CoDl_colorArgb_ex(phost, 0xFFFFFFFF);
-        EVE_CoDl_bitmapHandle(phost, EVE_CO_SCRATCH_HANDLE);
+        EVE_CoDl_bitmapHandle(phost, u->bitmap_scratch.handle);
         EVE_CoDl_bitmapSource(phost, dst_addr + src_ofs);
-        eve5_set_image_bitmap_layout(phost, layer_fmt, (int32_t)layer_stride, layer_h - by1, layer_luminance);
+        eve5_set_image_bitmap_layout(u, layer_fmt, (int32_t)layer_stride, layer_h - by1, layer_luminance);
 
         /* Draw 1: stretch source to fill padded buffer (edge extension) */
         {
@@ -643,7 +643,7 @@ bool lv_draw_eve5_gaussian_blur(lv_draw_eve5_unit_t * u, lv_layer_t * layer,
             int32_t ofs_c = ((int32_t)bw * 256 - (int32_t)(scale_a * (uint32_t)pw)) / 2;
             int32_t ofs_f = ((int32_t)bh * 256 - (int32_t)(scale_e * (uint32_t)ph)) / 2;
 
-            EVE_CoDl_bitmapSize(phost, NEAREST, BORDER, BORDER, pw, ph);
+            lv_draw_eve5_bitmap_size(u, NEAREST, BORDER, BORDER, pw, ph);
             EVE_CoDl_bitmapTransform_identity(phost);
             EVE_CoDl_bitmapTransformA_ex(phost, 0, scale_a);
             EVE_CoDl_bitmapTransformE_ex(phost, 0, scale_e);
@@ -681,10 +681,10 @@ bool lv_draw_eve5_gaussian_blur(lv_draw_eve5_unit_t * u, lv_layer_t * layer,
          * Re-set bitmap state since draw_rect may have clobbered it. */
         EVE_CoDl_colorArgb_ex(phost, 0xFFFFFFFF);
         EVE_CoDl_blendFunc(phost, ONE, ZERO);
-        EVE_CoDl_bitmapHandle(phost, EVE_CO_SCRATCH_HANDLE);
+        EVE_CoDl_bitmapHandle(phost, u->bitmap_scratch.handle);
         EVE_CoDl_bitmapSource(phost, dst_addr + src_ofs);
-        eve5_set_image_bitmap_layout(phost, layer_fmt, (int32_t)layer_stride, layer_h - by1, layer_luminance);
-        EVE_CoDl_bitmapSize(phost, NEAREST, BORDER, BORDER, bw, bh);
+        eve5_set_image_bitmap_layout(u, layer_fmt, (int32_t)layer_stride, layer_h - by1, layer_luminance);
+        lv_draw_eve5_bitmap_size(u, NEAREST, BORDER, BORDER, bw, bh);
         EVE_CoDl_bitmapTransform_identity(phost);
 
         EVE_CoDl_begin(phost, BITMAPS);
@@ -924,14 +924,14 @@ bool lv_draw_eve5_gaussian_blur(lv_draw_eve5_unit_t * u, lv_layer_t * layer,
         uint32_t scale_y = (uint32_t)final_lev->h * 256 / (uint32_t)ph;
 
         EVE_CoCmd_renderTarget(phost, dst_addr, layer_fmt, layer_aw, layer_ah);
-        EVE_CoCmd_dlStart(phost);
+        lv_draw_eve5_dl_start(u);
 
         /* Blit entire source layer as background (preserves unchanged areas) */
         EVE_CoDl_colorArgb_ex(phost, 0xFFFFFFFF);
-        EVE_CoDl_bitmapHandle(phost, EVE_CO_SCRATCH_HANDLE);
+        EVE_CoDl_bitmapHandle(phost, u->bitmap_scratch.handle);
         EVE_CoDl_bitmapSource(phost, dst_addr);
-        eve5_set_image_bitmap_layout(phost, layer_fmt, (int32_t)layer_stride, layer_h, layer_luminance);
-        EVE_CoDl_bitmapSize(phost, NEAREST, BORDER, BORDER, layer_w, layer_h);
+        eve5_set_image_bitmap_layout(u, layer_fmt, (int32_t)layer_stride, layer_h, layer_luminance);
+        lv_draw_eve5_bitmap_size(u, NEAREST, BORDER, BORDER, layer_w, layer_h);
         EVE_CoDl_bitmapTransform_identity(phost);
         EVE_CoDl_blendFunc(phost, ONE, ZERO);
         EVE_CoDl_begin(phost, BITMAPS);
@@ -941,7 +941,7 @@ bool lv_draw_eve5_gaussian_blur(lv_draw_eve5_unit_t * u, lv_layer_t * layer,
         EVE_CoDl_scissorXY(phost, bx1, by1);
         EVE_CoDl_scissorSize(phost, bw, bh);
 
-        EVE_CoDl_bitmapHandle(phost, EVE_CO_SCRATCH_HANDLE);
+        EVE_CoDl_bitmapHandle(phost, u->bitmap_scratch.handle);
 
         if(corner_radius > 0) {
             EVE_CoDl_saveContext(phost);
@@ -964,8 +964,8 @@ bool lv_draw_eve5_gaussian_blur(lv_draw_eve5_unit_t * u, lv_layer_t * layer,
         EVE_CoDl_colorArgb_ex(phost, 0xFFFFFFFF);
         EVE_CoDl_blendFunc(phost, ONE, ZERO);
         EVE_CoDl_bitmapSource(phost, final_addr);
-        EVE_CoDl_bitmapLayout(phost, ARGB8, final_lev->aw * 4, final_lev->h);
-        EVE_CoDl_bitmapSize(phost, BILINEAR, BORDER, BORDER, pw, ph);
+        lv_draw_eve5_bitmap_layout(u, ARGB8, final_lev->aw * 4, final_lev->h);
+        lv_draw_eve5_bitmap_size(u, BILINEAR, BORDER, BORDER, pw, ph);
         EVE_CoDl_bitmapTransform_identity(phost);
         if(scale_x != 0x0100 || scale_y != 0x0100) {
             EVE_CoDl_bitmapTransformA_ex(phost, 0, scale_x);

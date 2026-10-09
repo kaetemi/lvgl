@@ -1030,7 +1030,7 @@ static void eve5_argb8_finish(lv_draw_eve5_unit_t * u, lv_layer_t * layer, bool 
         EVE_HalContext * phost = u->hal;
         lv_eve5_vram_res_t * vr = eve5_get_vram_res(u, layer);
         EVE_CoCmd_renderTarget(phost, SWAPCHAIN_0, vr->eve_format, w, h);
-        EVE_CoCmd_dlStart(phost);
+        lv_draw_eve5_dl_start(u);
         EVE_CoDl_scissorXY(phost, 0, 0);
         EVE_CoDl_scissorSize(phost, w, h);
         EVE_CoDl_clearColorRgb(phost, 0, 0, 0);
@@ -1331,7 +1331,7 @@ static void eve5_render_layer(lv_draw_eve5_unit_t * u, lv_layer_t * layer)
                     /* Clear-only DL: samples no allocator-managed memory,
                      * so no epoch scope is needed around this segment */
                     EVE_CoCmd_renderTarget(u->hal, pa, ARGB8, aw, ah);
-                    EVE_CoCmd_dlStart(u->hal);
+                    lv_draw_eve5_dl_start(u);
                     EVE_CoDl_clearColorRgb(u->hal, 0, 0, 0);
                     EVE_CoDl_clearColorA(u->hal, 0);
                     EVE_CoDl_clear(u->hal, 1, 1, 1);
@@ -1404,7 +1404,6 @@ static void eve5_render_layer(lv_draw_eve5_unit_t * u, lv_layer_t * layer)
                 if(!blend_attempted) {
                     /* Unimplemented blend mode: composite src over dst normally.
                      * This is a standard premultiplied blit as fallback. */
-                    EVE_HalContext *phost = u->hal;
                     LV_LOG_INFO("EVE5: Blend mode %d not implemented, compositing normally",
                                 dsc->blend_mode);
                     int32_t bw = lv_area_get_width(&layer->buf_area);
@@ -1428,7 +1427,7 @@ static void eve5_render_layer(lv_draw_eve5_unit_t * u, lv_layer_t * layer)
                         EVE_GpuAlloc_OpenScope(u->allocator);
 
                         EVE_CoCmd_renderTarget(u->hal, result_addr, ARGB8, baw, bah);
-                        EVE_CoCmd_dlStart(u->hal);
+                        lv_draw_eve5_dl_start(u);
                         EVE_CoDl_scissorXY(u->hal, 0, 0);
                         EVE_CoDl_scissorSize(u->hal, bw, bh);
                         EVE_CoDl_clearColorRgb(u->hal, 0, 0, 0);
@@ -1437,13 +1436,13 @@ static void eve5_render_layer(lv_draw_eve5_unit_t * u, lv_layer_t * layer)
                         EVE_CoDl_vertexFormat(u->hal, 0);
                         EVE_CoDl_colorArgb_ex(u->hal, 0xFFFFFFFF);
                         EVE_CoDl_bitmapTransform_identity(u->hal);
-                        EVE_CoDl_bitmapHandle(u->hal, EVE_CO_SCRATCH_HANDLE);
+                        EVE_CoDl_bitmapHandle(u->hal, u->bitmap_scratch.handle);
 
                         /* Blit dst */
                         EVE_CoDl_blendFunc(u->hal, ONE, ZERO);
                         EVE_CoDl_bitmapSource(u->hal, prev_addr);
-                        EVE_CoDl_bitmapLayout(u->hal, ARGB8, bstride, bh);
-                        EVE_CoDl_bitmapSize(u->hal, NEAREST, BORDER, BORDER, bw, bh);
+                        lv_draw_eve5_bitmap_layout(u, ARGB8, bstride, bh);
+                        lv_draw_eve5_bitmap_size(u, NEAREST, BORDER, BORDER, bw, bh);
                         EVE_CoDl_begin(u->hal, BITMAPS);
                         EVE_CoDl_vertex2f_0(u->hal, 0, 0);
                         EVE_CoDl_end(u->hal);
@@ -1729,7 +1728,7 @@ static void eve5_render_layer_nort(lv_draw_eve5_unit_t * u, lv_layer_t * layer)
 #endif
 
     /* Open DL targeting the implicit framebuffer (no CMD_RENDERTARGET) */
-    EVE_CoCmd_dlStart(phost);
+    lv_draw_eve5_dl_start(u);
     EVE_CoDl_scissorXY(phost, 0, 0);
     EVE_CoDl_scissorSize(phost, sw, sh);
     EVE_CoDl_clearColorRgb(phost, 0, 0, 0);

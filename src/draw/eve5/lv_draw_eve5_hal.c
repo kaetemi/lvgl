@@ -471,12 +471,13 @@ void lv_draw_eve5_register_vram_callbacks(lv_draw_eve5_unit_t * u)
  * each product where LVGL truncates its sum: 47% of all colors come out
  * exact, the rest at most 2 above, white stays white and grays at most 1
  * above. The source is premultiplied or opaque: alpha takes no part. */
-void lv_draw_eve5_draw_luminance(EVE_HalContext * phost, uint16_t eve_format, uint32_t stride,
+void lv_draw_eve5_draw_luminance(lv_draw_eve5_unit_t * u, uint16_t eve_format, uint32_t stride,
                                  int32_t w, int32_t h)
 {
-    EVE_CoDl_bitmapLayout(phost, GLFORMAT, stride, h);
+    EVE_HalContext * phost = u->hal;
+    lv_draw_eve5_bitmap_layout(u, GLFORMAT, stride, h);
     EVE_CoDl_bitmapExtFormat(phost, eve_format);
-    EVE_CoDl_bitmapSize(phost, NEAREST, BORDER, BORDER, w, h);
+    lv_draw_eve5_bitmap_size(u, NEAREST, BORDER, BORDER, w, h);
     EVE_CoDl_begin(phost, BITMAPS);
     EVE_CoDl_blendFunc(phost, ONE, ZERO);
     EVE_CoDl_bitmapSwizzle(phost, RED, RED, RED, ONE);
@@ -506,13 +507,13 @@ static void eve5_draw_prev(lv_draw_eve5_unit_t * u, uint16_t target_fmt, uint32_
     EVE_CoDl_saveContext(phost);
     EVE_CoDl_blendFunc(phost, ONE, ZERO);
     EVE_CoDl_colorArgb_ex(phost, 0xFFFFFFFF);
-    EVE_CoDl_bitmapHandle(phost, EVE_CO_SCRATCH_HANDLE);
+    EVE_CoDl_bitmapHandle(phost, u->bitmap_scratch.handle);
     EVE_CoDl_bitmapSource(phost, prev_addr);
     if(prev_threshold) {
-        EVE_CoDl_bitmapLayout(phost, GLFORMAT, prev_stride, h);
+        lv_draw_eve5_bitmap_layout(u, GLFORMAT, prev_stride, h);
         EVE_CoDl_bitmapExtFormat(phost, prev_fmt);
         EVE_CoDl_bitmapSwizzle(phost, ONE, ONE, ONE, ALPHA);
-        EVE_CoDl_bitmapSize(phost, NEAREST, BORDER, BORDER, w, h);
+        lv_draw_eve5_bitmap_size(u, NEAREST, BORDER, BORDER, w, h);
         EVE_CoDl_alphaFunc(phost, GREATER, EVE5_I1_LUM_THRESHOLD);
         EVE_CoDl_begin(phost, BITMAPS);
         EVE_CoDl_vertex2f_0(phost, 0, 0);
@@ -522,10 +523,10 @@ static void eve5_draw_prev(lv_draw_eve5_unit_t * u, uint16_t target_fmt, uint32_
     else if((target_fmt == L8 || target_fmt == LA8) && prev_fmt != L8) {
         /* A luminance layer's content in color (its ARGB8 intermediate) */
         if(target_fmt == LA8) EVE_CoDl_colorMask(phost, 1, 1, 1, 0);
-        lv_draw_eve5_draw_luminance(phost, prev_fmt, prev_stride, w, h);
+        lv_draw_eve5_draw_luminance(u, prev_fmt, prev_stride, w, h);
         if(target_fmt == LA8) {
             EVE_CoDl_colorMask(phost, 0, 0, 0, 1);
-            EVE_CoDl_bitmapLayout(phost, (uint8_t)prev_fmt, prev_stride, h);
+            lv_draw_eve5_bitmap_layout(u, (uint8_t)prev_fmt, prev_stride, h);
             EVE_CoDl_begin(phost, BITMAPS);
             EVE_CoDl_vertex2f_0(phost, 0, 0);
             EVE_CoDl_end(phost);
@@ -533,8 +534,8 @@ static void eve5_draw_prev(lv_draw_eve5_unit_t * u, uint16_t target_fmt, uint32_
     }
 #endif
     else {
-        eve5_set_image_bitmap_layout(u->hal, prev_fmt, (int32_t)prev_stride, h, prev_luminance);
-        EVE_CoDl_bitmapSize(u->hal, NEAREST, BORDER, BORDER, w, h);
+        eve5_set_image_bitmap_layout(u, prev_fmt, (int32_t)prev_stride, h, prev_luminance);
+        lv_draw_eve5_bitmap_size(u, NEAREST, BORDER, BORDER, w, h);
         EVE_CoDl_begin(u->hal, BITMAPS);
         EVE_CoDl_vertex2f_0(u->hal, 0, 0);
         EVE_CoDl_end(u->hal);
@@ -561,7 +562,7 @@ EVE_GpuHandle lv_draw_eve5_hal_reduce(lv_draw_eve5_unit_t * u, EVE_GpuHandle int
 
     EVE_GpuAlloc_OpenScope(u->allocator);
     EVE_CoCmd_renderTarget(phost, dst, eve_format, aw, ah);
-    EVE_CoCmd_dlStart(phost);
+    lv_draw_eve5_dl_start(u);
     EVE_CoDl_scissorXY(phost, 0, 0);
     EVE_CoDl_scissorSize(phost, aw, ah);
     EVE_CoDl_clearColorRgb(phost, 0, 0, 0);
@@ -648,7 +649,7 @@ void lv_draw_eve5_hal_init_layer(lv_draw_eve5_unit_t * u, lv_layer_t * layer,
             EVE_GpuAlloc_OpenScope(u->allocator);
 
             EVE_CoCmd_renderTarget(phost, SWAPCHAIN_0, sc_vr->eve_format, sw, sh);
-            EVE_CoCmd_dlStart(phost);
+            lv_draw_eve5_dl_start(u);
             EVE_CoDl_scissorXY(phost, 0, 0);
             EVE_CoDl_scissorSize(phost, sw, sh);
 
@@ -822,7 +823,7 @@ void lv_draw_eve5_hal_init_layer(lv_draw_eve5_unit_t * u, lv_layer_t * layer,
     EVE_GpuAlloc_OpenScope(u->allocator);
 
     EVE_CoCmd_renderTarget(u->hal, ram_g_addr, target_eve_fmt, aligned_w, aligned_h);
-    EVE_CoCmd_dlStart(u->hal);
+    lv_draw_eve5_dl_start(u);
     EVE_CoDl_scissorXY(u->hal, 0, 0);
     EVE_CoDl_scissorSize(u->hal, aligned_w, aligned_h);
 
@@ -959,9 +960,10 @@ void lv_draw_eve5_hal_init_layer(lv_draw_eve5_unit_t * u, lv_layer_t * layer,
             LV_LOG_INFO("EVE5: Converting layer to premultiplied alpha");
         }
         EVE_CoDl_colorArgb_ex(u->hal, 0xFFFFFFFF);
-        EVE_CoCmd_setBitmap(u->hal, src_addr, (uint8_t)src_format, w, h);
-        eve5_set_image_bitmap_layout(u->hal, src_format, (int32_t)src_stride, h, existing_luminance);
-        EVE_CoDl_bitmapSize(u->hal, NEAREST, BORDER, BORDER, w, h);
+        EVE_CoDl_bitmapHandle(u->hal, u->bitmap_scratch.handle);
+        EVE_CoDl_bitmapSource(u->hal, src_addr);
+        eve5_set_image_bitmap_layout(u, src_format, (int32_t)src_stride, h, existing_luminance);
+        lv_draw_eve5_bitmap_size(u, NEAREST, BORDER, BORDER, w, h);
         if(src_palette != GA_INVALID) {
             EVE_CoDl_paletteSource(u->hal, src_palette);
         }
@@ -1085,7 +1087,7 @@ EVE_GpuHandle lv_draw_eve5_hal_init_l8_rendertarget(lv_draw_eve5_unit_t * u,
     EVE_GpuAlloc_OpenScope(u->allocator);
 
     EVE_CoCmd_renderTarget(phost, l8_addr, L8, aligned_w, aligned_h);
-    EVE_CoCmd_dlStart(phost);
+    lv_draw_eve5_dl_start(u);
 
     EVE_CoDl_scissorXY(phost, 0, 0);
     EVE_CoDl_scissorSize(phost, aligned_w, aligned_h);
@@ -1106,12 +1108,12 @@ EVE_GpuHandle lv_draw_eve5_hal_init_l8_rendertarget(lv_draw_eve5_unit_t * u,
         EVE_CoDl_saveContext(phost);
         EVE_CoDl_blendFunc(phost, ONE, ZERO);
         EVE_CoDl_colorArgb_ex(phost, 0xFFFFFFFF);
-        EVE_CoDl_bitmapHandle(phost, EVE_CO_SCRATCH_HANDLE);
+        EVE_CoDl_bitmapHandle(phost, u->bitmap_scratch.handle);
         EVE_CoDl_bitmapSource(phost, u->canvas_orig_addr);
         /* GLFORMAT mode required for BITMAP_SWIZZLE to take effect on BT820 */
-        EVE_CoDl_bitmapLayout(phost, GLFORMAT, u->canvas_orig_stride, u->canvas_orig_h);
+        lv_draw_eve5_bitmap_layout(u, GLFORMAT, u->canvas_orig_stride, u->canvas_orig_h);
         EVE_CoDl_bitmapExtFormat(phost, u->canvas_orig_format);
-        EVE_CoDl_bitmapSize(phost, NEAREST, BORDER, BORDER, u->canvas_orig_w, u->canvas_orig_h);
+        lv_draw_eve5_bitmap_size(u, NEAREST, BORDER, BORDER, u->canvas_orig_w, u->canvas_orig_h);
         if(u->canvas_orig_palette != GA_INVALID) {
             EVE_CoDl_paletteSource(phost, u->canvas_orig_palette);
         }
@@ -1155,10 +1157,10 @@ void lv_draw_eve5_hal_blit_l8_to_alpha(lv_draw_eve5_unit_t * u, uint32_t l8_addr
     EVE_CoDl_vertexFormat(phost, 0);
     EVE_CoDl_saveContext(phost);
 
-    EVE_CoDl_bitmapHandle(phost, EVE_CO_SCRATCH_HANDLE);
+    EVE_CoDl_bitmapHandle(phost, u->bitmap_scratch.handle);
     EVE_CoDl_bitmapSource(phost, l8_addr);
-    EVE_CoDl_bitmapLayout(phost, L8, aligned_w, aligned_h);
-    EVE_CoDl_bitmapSize(phost, NEAREST, BORDER, BORDER, w, h);
+    lv_draw_eve5_bitmap_layout(u, L8, aligned_w, aligned_h);
+    lv_draw_eve5_bitmap_size(u, NEAREST, BORDER, BORDER, w, h);
 
     EVE_CoDl_colorMask(phost, 0, 0, 0, 1);
     EVE_CoDl_blendFunc(phost, ONE, ZERO);
@@ -1289,16 +1291,16 @@ void lv_draw_eve5_hal_draw_texture(lv_draw_eve5_unit_t * u,
     EVE_CoDl_colorArgb_ex(phost, 0xFFFFFFFF);
     EVE_CoDl_bitmapTransform_identity(phost);
 
-    EVE_CoDl_bitmapHandle(phost, EVE_CO_SCRATCH_HANDLE);
+    EVE_CoDl_bitmapHandle(phost, u->bitmap_scratch.handle);
     EVE_CoDl_bitmapSource(phost, ram_g_addr);
     /* SW fallback renders LVGL ARGB8888 (4 bpp at upload). ARGB8 is
      * BT820-only; the ARGB4 fallback compiles but is functionally a stub. */
 #if (EVE_SUPPORT_CHIPID >= EVE_BT820)
-    EVE_CoDl_bitmapLayout(phost, ARGB8, eve_stride, tex_h);
+    lv_draw_eve5_bitmap_layout(u, ARGB8, eve_stride, tex_h);
 #else
-    EVE_CoDl_bitmapLayout(phost, ARGB4, eve_stride, tex_h);
+    lv_draw_eve5_bitmap_layout(u, ARGB4, eve_stride, tex_h);
 #endif
-    EVE_CoDl_bitmapSize(phost, NEAREST, BORDER, BORDER, tex_w, tex_h);
+    lv_draw_eve5_bitmap_size(u, NEAREST, BORDER, BORDER, tex_w, tex_h);
 
     if(premultiplied) EVE_CoDl_blendFunc(phost, ONE, ONE_MINUS_SRC_ALPHA);
     EVE_CoDl_begin(phost, BITMAPS);
@@ -1417,24 +1419,24 @@ void lv_draw_eve5_apply_bitmap_mask(lv_draw_eve5_unit_t * u, lv_layer_t * layer,
     /* Set up mask bitmap.
      * ARGB8/PALETTEDARGB8 grayscale masks: swizzle RED to ALPHA.
      * L8/A8: BT820 natively decodes as (255,255,255,L). */
-    EVE_CoDl_bitmapHandle(phost, EVE_CO_SCRATCH_HANDLE);
+    EVE_CoDl_bitmapHandle(phost, u->bitmap_scratch.handle);
     EVE_CoDl_bitmapSource(phost, mask_addr);
     set_palette_if_needed(phost, mask_img->eve_format, mask_palette);
 #if (EVE_SUPPORT_CHIPID >= EVE_BT820)
     if(mask_img->eve_format == ARGB8 || mask_img->eve_format == PALETTEDARGB8) {
-        EVE_CoDl_bitmapLayout(phost, GLFORMAT, mask_img->stride, mask_img->height);
+        lv_draw_eve5_bitmap_layout(u, GLFORMAT, mask_img->stride, mask_img->height);
         EVE_CoDl_bitmapExtFormat(phost, mask_img->eve_format);
         EVE_CoDl_bitmapSwizzle(phost, ZERO, ZERO, ZERO, RED);
     }
     else
 #endif
     {
-        EVE_CoDl_bitmapLayout(phost, (uint8_t)mask_img->eve_format,
+        lv_draw_eve5_bitmap_layout(u, (uint8_t)mask_img->eve_format,
                               mask_img->stride, mask_img->height);
     }
 
     /* Draw mask over full layer. BORDER mode returns 0 outside bitmap bounds. */
-    EVE_CoDl_bitmapSize(phost, NEAREST, BORDER, BORDER, layer_w, layer_h);
+    lv_draw_eve5_bitmap_size(u, NEAREST, BORDER, BORDER, layer_w, layer_h);
     EVE_CoDl_bitmapTransformC(phost, -mask_x * 256);
     EVE_CoDl_bitmapTransformF(phost, -mask_y * 256);
 

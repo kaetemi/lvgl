@@ -475,12 +475,12 @@ void lv_draw_eve5_sw_alpha_draw_task_texture(lv_draw_eve5_unit_t * u, const lv_d
     lv_draw_eve5_set_scissor(u, &t->clip_area, &layer->buf_area);
     EVE_CoDl_colorArgb_ex(phost, 0xFFFFFFFF);
     EVE_CoDl_bitmapTransform_identity(phost);
-    EVE_CoDl_bitmapHandle(phost, EVE_CO_SCRATCH_HANDLE);
+    EVE_CoDl_bitmapHandle(phost, u->bitmap_scratch.handle);
     EVE_CoDl_bitmapSource(phost, addr);
-    EVE_CoDl_bitmapLayout(phost, GLFORMAT, tex->stride, h);
+    lv_draw_eve5_bitmap_layout(u, GLFORMAT, tex->stride, h);
     EVE_CoDl_bitmapExtFormat(phost, ARGB8);
     EVE_CoDl_bitmapSwizzle(phost, ONE, ONE, ONE, ALPHA);
-    EVE_CoDl_bitmapSize(phost, NEAREST, BORDER, BORDER, lv_area_get_width(&tex->area), h);
+    lv_draw_eve5_bitmap_size(u, NEAREST, BORDER, BORDER, lv_area_get_width(&tex->area), h);
     EVE_CoDl_begin(phost, BITMAPS);
     EVE_CoDl_vertex2f_0(phost, tex->area.x1 - layer->buf_area.x1, tex->area.y1 - layer->buf_area.y1);
     EVE_CoDl_end(phost);

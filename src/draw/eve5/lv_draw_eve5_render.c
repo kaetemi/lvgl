@@ -810,10 +810,10 @@ void lv_draw_eve5_alpha_pass(lv_draw_eve5_unit_t * u, lv_layer_t * layer, const 
         EVE_CoDl_saveContext(phost);
         EVE_CoDl_blendFunc(phost, ONE, ZERO);
         EVE_CoDl_colorArgb_ex(phost, 0xFFFFFFFF);
-        EVE_CoDl_bitmapHandle(phost, EVE_CO_SCRATCH_HANDLE);
+        EVE_CoDl_bitmapHandle(phost, u->bitmap_scratch.handle);
         EVE_CoDl_bitmapSource(phost, u->canvas_orig_addr);
-        EVE_CoDl_bitmapLayout(phost, (uint8_t)u->canvas_orig_format, u->canvas_orig_stride, u->canvas_orig_h);
-        EVE_CoDl_bitmapSize(phost, NEAREST, BORDER, BORDER, u->canvas_orig_w, u->canvas_orig_h);
+        lv_draw_eve5_bitmap_layout(u, (uint8_t)u->canvas_orig_format, u->canvas_orig_stride, u->canvas_orig_h);
+        lv_draw_eve5_bitmap_size(u, NEAREST, BORDER, BORDER, u->canvas_orig_w, u->canvas_orig_h);
         if(u->canvas_orig_palette != GA_INVALID) {
             EVE_CoDl_paletteSource(phost, u->canvas_orig_palette);
         }

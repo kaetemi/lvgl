@@ -340,16 +340,16 @@ bool setup_gradient_bitmap(lv_draw_eve5_unit_t * u, const lv_grad_dsc_t * grad,
     int32_t stride = bmp_w * bpp;
 
     EVE_CoDl_colorArgb_ex(phost, 0xFFFFFFFF);
-    EVE_CoDl_bitmapHandle(phost, EVE_CO_SCRATCH_HANDLE);
+    EVE_CoDl_bitmapHandle(phost, u->bitmap_scratch.handle);
     /* Use the CoDl wrappers — they emit BITMAP_{LAYOUT,SIZE,SOURCE}_H only on
      * chips that support them (LAYOUT_H/SIZE_H: FT810+, SOURCE_H: BT820+). */
-    EVE_CoDl_bitmapLayout(phost, eve_fmt, (uint16_t)stride, (uint16_t)bmp_h);
+    lv_draw_eve5_bitmap_layout(u, eve_fmt, (uint16_t)stride, (uint16_t)bmp_h);
     if(is_ver) {
-        EVE_CoDl_bitmapSize(phost, BILINEAR, REPEAT, BORDER,
+        lv_draw_eve5_bitmap_size(u, BILINEAR, REPEAT, BORDER,
                             (uint16_t)w, (uint16_t)h);
     }
     else {
-        EVE_CoDl_bitmapSize(phost, BILINEAR, BORDER, REPEAT,
+        lv_draw_eve5_bitmap_size(u, BILINEAR, BORDER, REPEAT,
                             (uint16_t)w, (uint16_t)h);
     }
     EVE_CoDl_bitmapSource(phost, addr);

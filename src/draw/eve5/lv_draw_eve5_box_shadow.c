@@ -82,7 +82,6 @@
  *********************/
 
 #define SHADOW_TEX_SIZE      EVE5_SHADOW_TEX_SIZE
-#define SHADOW_BITMAP_HANDLE EVE_CO_SCRATCH_HANDLE
 #define SHADOW_BOX_PERMILLE  940   /* Box width, in thousandths of the blur */
 #define SHADOW_EDGE_PERMILLE 965   /* Core's edge from the outer end, in thousandths of the blur */
 #define SHADOW_MIN_BLURRED   4     /* Narrower shadows are the core, as in the software renderer */
@@ -428,11 +427,12 @@ static bool shadow_slices(const lv_draw_task_t * t, const lv_draw_box_shadow_dsc
 }
 
 /* One slice of the bitmap set up, with its texture transform (s8.8, 15.8) */
-static void shadow_slice(EVE_HalContext * phost, int32_t x, int32_t y, int32_t w, int32_t h,
+static void shadow_slice(lv_draw_eve5_unit_t * u, int32_t x, int32_t y, int32_t w, int32_t h,
                          int32_t a, int32_t b, int32_t c, int32_t d, int32_t e, int32_t f)
 {
+    EVE_HalContext * phost = u->hal;
     if(w <= 0 || h <= 0) return;
-    EVE_CoDl_bitmapSize(phost, BILINEAR, BORDER, BORDER, w, h);
+    lv_draw_eve5_bitmap_size(u, BILINEAR, BORDER, BORDER, w, h);
     EVE_CoDl_bitmapTransformA(phost, a);
     EVE_CoDl_bitmapTransformB(phost, b);
     EVE_CoDl_bitmapTransformC(phost, c);
@@ -469,23 +469,23 @@ static void draw_shadow_slices(lv_draw_eve5_unit_t * u, const lv_draw_task_t * t
     int32_t cb = scale * (sl->bottom - 1) - in;
 
     /* CORNERS */
-    EVE_CoDl_bitmapHandle(phost, SHADOW_BITMAP_HANDLE);
+    EVE_CoDl_bitmapHandle(phost, u->bitmap_scratch.handle);
     EVE_CoDl_bitmapSource(phost, corner_addr);
-    EVE_CoDl_bitmapLayout(phost, L8, SHADOW_TEX_SIZE, SHADOW_TEX_SIZE);
+    lv_draw_eve5_bitmap_layout(u, L8, SHADOW_TEX_SIZE, SHADOW_TEX_SIZE);
     EVE_CoDl_begin(phost, BITMAPS);
-    shadow_slice(phost, sl->sx1, sl->sy1, sl->left, sl->top, scale, 0, cn, 0, scale, cn);
-    shadow_slice(phost, xr, sl->sy1, sl->right, sl->top, -scale, 0, cr, 0, scale, cn);
-    shadow_slice(phost, sl->sx1, yb, sl->left, sl->bottom, scale, 0, cn, 0, -scale, cb);
-    shadow_slice(phost, xr, yb, sl->right, sl->bottom, -scale, 0, cr, 0, -scale, cb);
+    shadow_slice(u, sl->sx1, sl->sy1, sl->left, sl->top, scale, 0, cn, 0, scale, cn);
+    shadow_slice(u, xr, sl->sy1, sl->right, sl->top, -scale, 0, cr, 0, scale, cn);
+    shadow_slice(u, sl->sx1, yb, sl->left, sl->bottom, scale, 0, cn, 0, -scale, cb);
+    shadow_slice(u, xr, yb, sl->right, sl->bottom, -scale, 0, cr, 0, -scale, cb);
 
     /* EDGES: the one-row texture across the edge, rotated for the top and
      * bottom */
     EVE_CoDl_bitmapSource(phost, edge_addr);
-    EVE_CoDl_bitmapLayout(phost, L8, SHADOW_TEX_SIZE, 1);
-    shadow_slice(phost, xl, sl->sy1, xr - xl, sl->top, 0, scale, cn, 0, 0, 0);
-    shadow_slice(phost, xl, yb, xr - xl, sl->bottom, 0, -scale, cb, 0, 0, 0);
-    shadow_slice(phost, sl->sx1, yt, sl->left, yb - yt, scale, 0, cn, 0, 0, 0);
-    shadow_slice(phost, xr, yt, sl->right, yb - yt, -scale, 0, cr, 0, 0, 0);
+    lv_draw_eve5_bitmap_layout(u, L8, SHADOW_TEX_SIZE, 1);
+    shadow_slice(u, xl, sl->sy1, xr - xl, sl->top, 0, scale, cn, 0, 0, 0);
+    shadow_slice(u, xl, yb, xr - xl, sl->bottom, 0, -scale, cb, 0, 0, 0);
+    shadow_slice(u, sl->sx1, yt, sl->left, yb - yt, scale, 0, cn, 0, 0, 0);
+    shadow_slice(u, xr, yt, sl->right, yb - yt, -scale, 0, cr, 0, 0, 0);
     EVE_CoDl_end(phost);
 
     /* CENTER: solid, as a scissored rect to avoid EVE RECTS alpha artifacts */
