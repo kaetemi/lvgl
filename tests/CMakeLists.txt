@@ -262,6 +262,29 @@ endif()
 
 lvgl_add_test_folder_if(NOT CONFIG_LV_CHECK_ARG_ASSERT_ON_FAIL test_cases/public_api)
 lvgl_get_test_files(TEST_CASE_FILES)
+if(CONFIG_LV_USE_EVE5)
+    set(LV_TEST_EVE_DEVICE "BT8XX" CACHE STRING
+        "EVE device the EVE5 tests open, the start of the HAL host name")
+    set(LV_TEST_EVE_CHIP "BT820" CACHE STRING
+        "Chip the EVE5 tests emulate in multi graphics target builds")
+    # A single-chip eve_apps build fixes the hardware capability regardless
+    # of the runtime emulator selector. Other builds use the selected chip.
+    set(eve5_test_chip "${LV_TEST_EVE_CHIP}")
+    if(EVE_APPS_GRAPHICS MATCHES "^EVE_GRAPHICS_((BT|FT)[0-9]+)$")
+        set(eve5_test_chip "${CMAKE_MATCH_1}")
+    endif()
+    string(TOUPPER "${eve5_test_chip}" eve5_test_chip)
+    if(eve5_test_chip MATCHES "^(BT|FT)[0-9]+$" AND NOT eve5_test_chip STREQUAL "BT820")
+        # NORT renders directly to scanout: varying the target buffer format
+        # does not exercise distinct hardware paths. Keep the ARGB8888 scenes.
+        foreach(test_case_fname ${TEST_CASE_FILES})
+            if(test_case_fname MATCHES "/test_render_to_.*\\.c$" AND
+               NOT test_case_fname MATCHES "/test_render_to_argb8888\\.c$")
+                list(REMOVE_ITEM TEST_CASE_FILES ${test_case_fname})
+            endif()
+        endforeach()
+    endif()
+endif()
 if(NOT CONFIG_LV_USE_EVE5)
     list(REMOVE_ITEM TEST_CASE_FILES ${LVGL_TEST_DIR}/src/test_cases/test_eve5_screenshot.c)
 endif()
@@ -308,12 +331,6 @@ endif()
 
 set(generate_test_runner_rb ${LVGL_TEST_DIR}/unity/generate_test_runner.rb)
 
-if(CONFIG_LV_USE_EVE5)
-    set(LV_TEST_EVE_DEVICE "BT8XX" CACHE STRING
-        "EVE device the EVE5 tests open, the start of the HAL host name")
-    set(LV_TEST_EVE_CHIP "BT820" CACHE STRING
-        "Chip the EVE5 tests emulate in multi graphics target builds")
-endif()
 set(generate_test_runner_config ${LVGL_TEST_DIR}/config.yml)
 
 foreach(test_case_fname ${TEST_CASE_FILES})
