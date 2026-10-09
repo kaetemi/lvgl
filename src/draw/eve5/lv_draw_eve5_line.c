@@ -85,6 +85,7 @@ static bool line_segment_needs_alpha_rendertarget(const lv_draw_line_dsc_t * dsc
 #define DL_LINE_SEGMENT         53
 #define DL_LINE_SEGMENT_ALPHA   48
 #define DL_LINE_DASH_GAP        4
+#define DL_LINE_SEGMENT_SOLID   20
 
 /* Upper bound of the dash gap loop iterations of a segment: the gap centers
  * step by dash_width + dash_gap across the segment length plus one gap. The
@@ -96,7 +97,7 @@ static uint32_t line_segment_dash_gaps(const lv_draw_line_dsc_t * dsc, int32_t d
     return (uint32_t)((len + dsc->dash_gap) / (dsc->dash_width + dsc->dash_gap)) + 2;
 }
 
-void lv_draw_eve5_line_dl_bound(const lv_draw_task_t * t, lv_draw_eve5_dl_bound_t * bound)
+static uint32_t line_dl_counts(const lv_draw_task_t * t, uint32_t * dash_gaps)
 {
     const lv_draw_line_dsc_t * dsc = t->draw_dsc;
     uint32_t segments = 0;
@@ -120,8 +121,31 @@ void lv_draw_eve5_line_dl_bound(const lv_draw_task_t * t, lv_draw_eve5_dl_bound_
         gaps = line_segment_dash_gaps(dsc, (int32_t)(dsc->p2.x - dsc->p1.x), (int32_t)(dsc->p2.y - dsc->p1.y));
     }
 
+    *dash_gaps = gaps;
+    return segments;
+}
+
+void lv_draw_eve5_line_dl_bound(const lv_draw_task_t * t, lv_draw_eve5_dl_bound_t * bound)
+{
+    uint32_t gaps;
+    uint32_t segments = line_dl_counts(t, &gaps);
     bound->rgb = DL_LINE_SEGMENT * segments + DL_LINE_DASH_GAP * gaps;
     bound->alpha = DL_LINE_SEGMENT_ALPHA * segments + DL_LINE_DASH_GAP * gaps;
+}
+
+void lv_draw_eve5_line_dl_bounds(const lv_draw_task_t * t, uint32_t cost[3])
+{
+    const lv_draw_line_dsc_t * dsc = t->draw_dsc;
+    if(dsc->width == 0 || dsc->opa <= LV_OPA_MIN) {
+        cost[0] = cost[1] = cost[2] = 0;
+        return;
+    }
+    uint32_t gaps;
+    uint32_t segments = line_dl_counts(t, &gaps);
+    cost[0] = DL_LINE_SEGMENT * segments + DL_LINE_DASH_GAP * gaps;
+    /* Direct LINES, including both scissor changes for the H/V flat path,
+     * worst-case vertex-format writes and all non-deduplicated state. */
+    cost[1] = cost[2] = DL_LINE_SEGMENT_SOLID * segments;
 }
 
 /**********************
@@ -236,6 +260,12 @@ static void draw_line_segment(lv_draw_eve5_unit_t * u, const lv_draw_task_t * t,
 
         line_w += 16;
         off = 0;
+    }
+
+    if(u->degrade_level >= 1) {
+        if((!is_hv_flat && (need_flat_start || need_flat_end)) || has_dashes) u->task_degraded = true;
+        if(!is_hv_flat) need_flat_start = need_flat_end = false;
+        has_dashes = false;
     }
 
     if((!is_hv_flat && (need_flat_start || need_flat_end)) || has_dashes) {

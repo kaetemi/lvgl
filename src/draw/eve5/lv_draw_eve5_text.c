@@ -1340,10 +1340,11 @@ static bool label_clipped_text(const lv_draw_task_t * t, uint32_t * start, uint3
     return true;
 }
 
-uint32_t lv_draw_eve5_label_dl_bound(const lv_draw_task_t * t, bool clipped)
+void lv_draw_eve5_label_dl_bounds(const lv_draw_task_t * t, bool clipped, uint32_t cost[3])
 {
     const lv_draw_label_dsc_t * dsc = t->draw_dsc;
-    if(dsc->text == NULL) return 0;
+    cost[0] = cost[1] = cost[2] = 0;
+    if(dsc->text == NULL) return;
 
     uint32_t start = 0;
     uint32_t bytes = 0;
@@ -1358,7 +1359,7 @@ uint32_t lv_draw_eve5_label_dl_bound(const lv_draw_task_t * t, bool clipped)
      * fmt_txt produces bitmap glyphs even when compressed or loaded on demand. Those need the
      * generic upload path, but not the image-glyph allowance. Classify by the callback here;
      * is_plain_fmt_txt only decides whether bitmap data can be uploaded directly. */
-    uint32_t glyph = (dsc->rotation % 3600 != 0) ? DL_GLYPH_XFORM : DL_GLYPH;
+    uint32_t glyph = DL_GLYPH;
     for(const lv_font_t * f = dsc->font; f != NULL; f = f->fallback) {
         if(!font_is_cmdtext_font(f) && f->get_glyph_bitmap != lv_font_get_bitmap_fmt_txt) {
             glyph = LV_MAX(glyph, DL_GLYPH_IMAGE);
@@ -1391,7 +1392,16 @@ uint32_t lv_draw_eve5_label_dl_bound(const lv_draw_task_t * t, bool clipped)
     }
 #endif
 
-    return DL_LABEL + bytes * (glyph + decor * DL_GLYPH_DECOR) + missing * DL_GLYPH_PLACEHOLDER;
+    cost[2] = DL_LABEL + bytes * (glyph + decor * DL_GLYPH_DECOR) + missing * DL_GLYPH_PLACEHOLDER;
+    if(dsc->rotation % 3600 != 0) glyph = LV_MAX(glyph, DL_GLYPH_XFORM);
+    cost[0] = cost[1] = DL_LABEL + bytes * (glyph + decor * DL_GLYPH_DECOR) + missing * DL_GLYPH_PLACEHOLDER;
+}
+
+uint32_t lv_draw_eve5_label_dl_bound(const lv_draw_task_t * t, bool clipped)
+{
+    uint32_t cost[3];
+    lv_draw_eve5_label_dl_bounds(t, clipped, cost);
+    return cost[0];
 }
 
 /**********************

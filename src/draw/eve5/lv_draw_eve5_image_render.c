@@ -225,6 +225,21 @@ void lv_draw_eve5_hal_draw_image(lv_draw_eve5_unit_t * u, const lv_draw_task_t *
     bool alpha_only = alpha_layer || (!sample_as_luminance
                                       && (eve_format == L1 || eve_format == L2 || eve_format == L4 || eve_format == L8));
 
+    /* Keep alpha-only tinting, but remove the multi-pass color recolor at
+     * degradation level 2. Resolve the source first: decoded file formats
+     * cannot be classified reliably from the draw descriptor's header. */
+    lv_draw_image_dsc_t plain_dsc;
+    lv_draw_task_t plain_task;
+    if(u->degrade_level >= 2 && !alpha_only && dsc->recolor_opa > LV_OPA_MIN) {
+        plain_dsc = *dsc;
+        plain_dsc.recolor_opa = LV_OPA_TRANSP;
+        plain_task = *t;
+        plain_task.draw_dsc = &plain_dsc;
+        t = &plain_task;
+        dsc = &plain_dsc;
+        u->task_degraded = true;
+    }
+
     /* Load bitmap mask if set */
     bool has_bitmap_mask = false;
     uint32_t mask_ram_g_addr = GA_INVALID;

@@ -254,4 +254,33 @@ void test_eve5_layer_refusals_retain_offscreen_canvas_drawing(void)
     lv_refr_now(disp);
     TEST_ASSERT_TRUE(lv_test_screenshot_read(frame));
 }
+
+void test_eve5_degradation_stats_follow_rendered_frames(void)
+{
+    lv_display_t * disp = lv_display_get_default();
+    if(EVE_Hal_supportRenderTarget(lv_eve5_get_hal(disp))) TEST_IGNORE_MESSAGE("NORT degradation policy");
+    static lv_point_precise_t points[71];
+    for(unsigned i = 0; i < 71; i++) points[i] = (lv_point_precise_t) {i * 10, i & 1 ? 80 : 40};
+    lv_draw_eve5_reset_stats();
+    lv_test_eve5_case_begin();
+    lv_obj_t * line = lv_line_create(lv_screen_active());
+    lv_line_set_points(line, points, 71);
+    lv_obj_set_style_line_width(line, 3, 0);
+    lv_obj_set_style_line_dash_width(line, 4, 0);
+    lv_obj_set_style_line_dash_gap(line, 3, 0);
+    lv_refr_now(disp);
+    uint32_t degraded = lv_draw_eve5_get_stats()->degraded_tasks[0];
+    TEST_ASSERT_GREATER_THAN_UINT32(0, degraded);
+    TEST_ASSERT_TRUE(lv_test_screenshot_read(frame));
+    lv_refr_now(disp); /* Empty refresh: preserve displayed-frame diagnostics. */
+    TEST_ASSERT_TRUE(lv_test_screenshot_read(frame));
+    TEST_ASSERT_EQUAL_UINT32(degraded, lv_draw_eve5_get_stats()->degraded_tasks[0]);
+    lv_obj_delete(line);
+    lv_refr_now(disp);
+    TEST_ASSERT_TRUE(lv_test_screenshot_read(frame));
+    TEST_ASSERT_EQUAL_UINT32(degraded, lv_draw_eve5_get_stats()->degraded_tasks[0]);
+    lv_draw_eve5_reset_stats();
+    TEST_ASSERT_EQUAL_UINT32(0, lv_draw_eve5_get_stats()->degraded_tasks[0]);
+    TEST_ASSERT_EQUAL_UINT32(0, lv_draw_eve5_get_stats()->degraded_tasks[1]);
+}
 #endif

@@ -26,6 +26,8 @@ static uint32_t s_frame_layer_tasks_refused;
 static uint32_t s_frame_layer_refusals;
 static uint32_t s_last_render_layer_tasks_refused;
 static uint32_t s_offscreen_layer_refusals;
+static uint32_t s_degraded_before[2];
+static uint32_t s_degraded_frame[2];
 
 static bool idle_cb(EVE_HalContext * phost);
 static bool read_screen_cb(lv_display_t * disp, uint8_t * buf, uint32_t stride);
@@ -114,10 +116,11 @@ void lv_test_eve5_close(void)
     const lv_draw_eve5_stats_t * stats = lv_draw_eve5_get_stats();
     printf("EVE5 stats: uploads=%" LV_PRIu32 " upload_bytes=%llu hw_decodes=%" LV_PRIu32
            " downloads=%" LV_PRIu32 " download_bytes=%llu hashes=%" LV_PRIu32 " hash_bytes=%llu"
-           " layer_tasks_refused=%" LV_PRIu32 "\n",
+           " layer_tasks_refused=%" LV_PRIu32 " degraded_tasks_1=%" LV_PRIu32 " degraded_tasks_2=%" LV_PRIu32 "\n",
            stats->uploads, (unsigned long long)stats->upload_bytes, stats->hw_decodes,
            stats->downloads, (unsigned long long)stats->download_bytes,
-           stats->hashes, (unsigned long long)stats->hash_bytes, stats->layer_tasks_refused);
+           stats->hashes, (unsigned long long)stats->hash_bytes, stats->layer_tasks_refused,
+           stats->degraded_tasks[0], stats->degraded_tasks[1]);
     lv_draw_eve5_deinit();
     EVE_Hal_close(&s_host);
     EVE_Hal_release();
@@ -328,6 +331,10 @@ static void frame_start_cb(lv_event_t * e)
     s_offscreen_layer_refusals += refused - s_last_render_layer_tasks_refused;
     s_frame_layer_tasks_refused = refused;
     s_frame_layer_refusals = 0;
+    for(unsigned i = 0; i < 2; i++) {
+        s_degraded_before[i] = lv_draw_eve5_get_stats()->degraded_tasks[i];
+        s_degraded_frame[i] = 0;
+    }
     printf("EVE5 frame: begin\n");
 }
 
@@ -337,6 +344,9 @@ static void frame_ready_cb(lv_event_t * e)
     uint32_t refused = lv_draw_eve5_get_stats()->layer_tasks_refused;
     s_frame_layer_refusals = refused - s_frame_layer_tasks_refused;
     s_last_render_layer_tasks_refused = refused;
+    for(unsigned i = 0; i < 2; i++) {
+        s_degraded_frame[i] = lv_draw_eve5_get_stats()->degraded_tasks[i] - s_degraded_before[i];
+    }
 }
 
 static bool read_screen_cb(lv_display_t * disp, uint8_t * buf, uint32_t stride)
@@ -366,6 +376,8 @@ static bool read_screen_cb(lv_display_t * disp, uint8_t * buf, uint32_t stride)
 #endif
     bool ok = lv_eve5_read_screen(disp, buf, stride);
     if(ok) {
+        printf("EVE5 capture: degraded_tasks_1=%" LV_PRIu32 " degraded_tasks_2=%" LV_PRIu32 "\n",
+               s_degraded_frame[0], s_degraded_frame[1]);
         printf("EVE5 capture: settled redraws=%u alloc_failures=%u\n", redraws,
                (unsigned)EVE_GpuAlloc_GetAllocFailedCount(lv_eve5_get_allocator(disp)));
         /* Keep lifetime transfer totals intact. Recovery redraws replace this

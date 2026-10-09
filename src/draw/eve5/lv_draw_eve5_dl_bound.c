@@ -54,6 +54,10 @@
 #define DL_LETTER               72  /* 16 around the glyph callback (56, a placeholder box); CMD_TEXT path 32 */
 #define DL_SW_TASK              22
 #define DL_SW_TASK_ALPHA        22  /* lv_draw_eve5_sw_alpha_draw_task_texture */
+#define DL_FILL_SOLID           20  /* Scissor, color, POINTS/RECTS, including hard-edge scissor restore */
+#define DL_FILL_BORDER_SOLID    (DL_FILL_SOLID + DL_BORDER) /* Also covers both merged solid paths */
+#define DL_TRIANGLE_SOLID       48  /* Color, stencil clear/edge strip, fill and context restore */
+#define DL_IMAGE_PLAIN          40  /* Cold bitmap/palette setup, identity matrix and one blend/draw pass */
 
 /*********************
  * GLOBAL FUNCTIONS
@@ -89,6 +93,67 @@ static uint32_t image_stamps(const lv_draw_task_t * t)
     int32_t nx = (t->area.x2 - dsc->image_area.x1 + 1 + src_w - 1) / src_w;
     int32_t ny = (t->area.y2 - dsc->image_area.y1 + 1 + src_h - 1) / src_h;
     return (uint32_t)LV_MAX(nx, 1) * (uint32_t)LV_MAX(ny, 1);
+}
+
+/* Costs of the three NORT policies. The smaller constants bound the solid
+ * branches, including cold optimizer/bitmap state; they are not averages.
+ * Keep this alongside the ordinary bounds so both paths evolve together. */
+void lv_draw_eve5_degrade_bounds(lv_draw_eve5_unit_t * u, lv_draw_task_t * t,
+                               const lv_draw_task_t * end, bool refined, uint32_t cost[3])
+{
+    if(t->type == LV_DRAW_TASK_TYPE_LABEL && !LV_DRAW_EVE5_SW_LABEL && !lv_draw_eve5_label_sw_texture(t)) {
+        lv_draw_eve5_label_dl_bounds(t, refined, cost);
+        return;
+    }
+    if(t->type == LV_DRAW_TASK_TYPE_LINE && !LV_DRAW_EVE5_SW_LINE) {
+        lv_draw_eve5_line_dl_bounds(t, cost);
+        return;
+    }
+    lv_draw_eve5_dl_bound_t bound;
+    lv_draw_eve5_task_dl_bound(u, t, end, &bound);
+    cost[0] = cost[1] = cost[2] = bound.rgb;
+    switch(t->type) {
+        case LV_DRAW_TASK_TYPE_FILL: {
+                const lv_draw_fill_dsc_t * dsc = t->draw_dsc;
+                lv_draw_task_t * border = lv_draw_eve5_fill_matching_border(t, end);
+                uint32_t solid = LV_DRAW_EVE5_SW_FILL ? DL_SW_TASK : DL_FILL_SOLID;
+                cost[1] = border ? DL_FILL_BORDER_SOLID : solid;
+                cost[2] = dsc->opa <= LV_OPA_MIN ? 0 : solid;
+                if(!border && dsc->opa <= LV_OPA_MIN) cost[0] = cost[1] = 0;
+                else if(dsc->grad.dir == LV_GRAD_DIR_NONE) cost[0] = cost[1];
+                if(border && dsc->opa <= LV_OPA_MIN &&
+                   ((lv_draw_border_dsc_t *)border->draw_dsc)->opa <= LV_OPA_MIN) cost[0] = cost[1] = 0;
+                break;
+            }
+        case LV_DRAW_TASK_TYPE_BORDER:
+            cost[2] = 0;
+            break;
+        case LV_DRAW_TASK_TYPE_BOX_SHADOW:
+            cost[1] = cost[2] = 0;
+            break;
+        case LV_DRAW_TASK_TYPE_TRIANGLE:
+            cost[1] = cost[2] = DL_TRIANGLE_SOLID;
+            if(((lv_draw_triangle_dsc_t *)t->draw_dsc)->grad.dir == LV_GRAD_DIR_NONE) cost[0] = cost[1];
+            break;
+        case LV_DRAW_TASK_TYPE_IMAGE:
+        case LV_DRAW_TASK_TYPE_LAYER: {
+                if(bound.rgb == 0) break;
+                const lv_draw_image_dsc_t * dsc = t->draw_dsc;
+                if(eve5_image_clip_radius(dsc) == 0 && !dsc->bitmap_mask_src && !dsc->colorkey) {
+                    /* One standard bitmap pass. Alpha-only tint stays cheap;
+                     * color-image recolor is disabled by policy 2 after source
+                     * resolution. The original tile-stamp allowance remains. */
+                    cost[2] = DL_IMAGE_PLAIN + DL_IMAGE_STAMP * image_stamps(t);
+                    bool transform = dsc->rotation || dsc->scale_x != LV_SCALE_NONE ||
+                                     dsc->scale_y != LV_SCALE_NONE || dsc->skew_x || dsc->skew_y;
+                    if(!transform && dsc->recolor_opa <= LV_OPA_MIN) cost[0] = cost[1] = cost[2];
+                }
+                break;
+            }
+        default:
+            break;
+    }
+    LV_ASSERT(cost[0] >= cost[1] && cost[1] >= cost[2]);
 }
 
 /**

@@ -204,6 +204,13 @@ int lv_draw_eve5_render_tasks(lv_draw_eve5_unit_t * u, lv_layer_t * layer, bool 
     int rendered_count = 0;
 
     budget->stop = slice->end;
+    bool nort = !EVE_Hal_supportRenderTarget(phost);
+    lv_draw_eve5_degrade_plan_t plan;
+    u->degrade_level = 0;
+    if(nort) {
+        uint32_t used = phost->DlEntries + budget->reserve;
+        lv_draw_eve5_degrade_plan(u, t, slice->end, used < dl_budget ? dl_budget - used : 0, &plan);
+    }
 
     while(t && t != slice->end) {
         if(t->preferred_draw_unit_id != DRAW_UNIT_ID_EVE5 ||
@@ -216,12 +223,27 @@ int lv_draw_eve5_render_tasks(lv_draw_eve5_unit_t * u, lv_layer_t * layer, bool 
         /* Display list budget: the entries written so far, this task's bound,
          * and everything that must still follow in this display list */
         lv_draw_eve5_dl_bound_t bound;
-        lv_draw_eve5_task_dl_bound(u, t, slice->end, &bound);
+        uint32_t costs[3] = {0};
+        if(nort) {
+            /* At a planned quality drop, replace the prefix estimate with
+             * the HAL's post-optimizer count and restore as much quality as
+             * the entire remaining sequence permits. No coprocessor wait. */
+            if(t == plan.boundary[0] || t == plan.boundary[1]) {
+                uint32_t used = phost->DlEntries + budget->reserve;
+                lv_draw_eve5_degrade_replan(u, t, slice->end, used < dl_budget ? dl_budget - used : 0, &plan);
+                if(plan.level < 2 && t == plan.boundary[plan.level]) plan.level++;
+            }
+            u->degrade_level = plan.level;
+            lv_draw_eve5_degrade_bounds(u, t, slice->end, plan.refined, costs);
+            bound.rgb = costs[plan.level];
+            bound.alpha = 0;
+        }
+        else lv_draw_eve5_task_dl_bound(u, t, slice->end, &bound);
         bool deferred_mask = !is_screen && t->type == LV_DRAW_TASK_TYPE_MASK_RECTANGLE;
         uint32_t rgb = deferred_mask ? 0 : bound.rgb;
         uint32_t after = deferred_mask ? bound.rgb : (budget->alpha_pass ? bound.alpha : 0);
         if(phost->DlEntries + rgb + budget->reserve + after > dl_budget) {
-            lv_draw_eve5_task_dl_bound_refine(t, &bound);
+            if(!nort) lv_draw_eve5_task_dl_bound_refine(t, &bound);
             rgb = deferred_mask ? 0 : bound.rgb;
             after = deferred_mask ? bound.rgb : (budget->alpha_pass ? bound.alpha : 0);
         }
@@ -264,6 +286,12 @@ int lv_draw_eve5_render_tasks(lv_draw_eve5_unit_t * u, lv_layer_t * layer, bool 
                             phost->DlEntries, rgb, budget->reserve + after, dl_budget);
             }
         }
+        if(nort) {
+            for(unsigned i = 0; i < 3; i++) {
+                LV_ASSERT(plan.remaining[i] >= costs[i]);
+                plan.remaining[i] -= costs[i];
+            }
+        }
         budget->reserve += after;
 
         if(deferred_mask) {
@@ -284,6 +312,15 @@ int lv_draw_eve5_render_tasks(lv_draw_eve5_unit_t * u, lv_layer_t * layer, bool 
                  task_type_str(t->type),
                  t->area.x1, t->area.y1, t->area.x2, t->area.y2);
 
+        lv_draw_task_t draw_task;
+        lv_draw_eve5_degrade_dsc_t degraded_dsc;
+        u->task_degraded = false;
+        lv_draw_task_t * draw = t;
+        if(u->degrade_level) {
+            draw_task = *t;
+            u->task_degraded = lv_draw_eve5_degrade_task(&draw_task, &degraded_dsc, u->degrade_level);
+            draw = &draw_task;
+        }
         switch(t->type) {
             case LV_DRAW_TASK_TYPE_FILL: {
                     /* Matching BORDER from the same lv_draw_rect(): unified rendering */
@@ -295,79 +332,90 @@ int lv_draw_eve5_render_tasks(lv_draw_eve5_unit_t * u, lv_layer_t * layer, bool 
                         next->state = LV_DRAW_TASK_STATE_IN_PROGRESS;
 
 #if LV_DRAW_EVE5_SW_FILL || LV_DRAW_EVE5_SW_BORDER
-                        lv_draw_eve5_sw_render_task(u, t);
-                        lv_draw_eve5_sw_render_task(u, next);
+                        lv_draw_eve5_sw_render_task(u, draw);
+                        if(u->degrade_level < 2) lv_draw_eve5_sw_render_task(u, next);
+                        else u->task_degraded = true;
 #else
-                        lv_draw_eve5_hal_draw_fill_with_border(u, t, next);
+                        if(u->degrade_level >= 2) {
+                            const lv_draw_border_dsc_t * border = next->draw_dsc;
+                            u->task_degraded |= border->opa > LV_OPA_MIN && border->width > 0;
+                            lv_draw_eve5_hal_draw_fill(u, draw, false);
+                        }
+                        else lv_draw_eve5_hal_draw_fill_with_border(u, draw, next);
 #endif
                         if(finish_tasks) next->state = LV_DRAW_TASK_STATE_FINISHED;
                         rendered_count++;
                     }
                     else {
 #if LV_DRAW_EVE5_SW_FILL
-                        lv_draw_eve5_sw_render_task(u, t);
+                        lv_draw_eve5_sw_render_task(u, draw);
 #else
-                        lv_draw_eve5_hal_draw_fill(u, t, false);
+                        lv_draw_eve5_hal_draw_fill(u, draw, false);
 #endif
                     }
                     break;
                 }
 
             case LV_DRAW_TASK_TYPE_BORDER:
+                if(u->degrade_level >= 2) {
+                    const lv_draw_border_dsc_t * border = t->draw_dsc;
+                    u->task_degraded |= border->opa > LV_OPA_MIN && border->width > 0;
+                    break;
+                }
 #if LV_DRAW_EVE5_SW_BORDER
-                lv_draw_eve5_sw_render_task(u, t);
+                lv_draw_eve5_sw_render_task(u, draw);
 #else
-                lv_draw_eve5_hal_draw_border(u, t, false);
+                lv_draw_eve5_hal_draw_border(u, draw, false);
 #endif
                 break;
 
             case LV_DRAW_TASK_TYPE_LINE:
 #if LV_DRAW_EVE5_SW_LINE
-                lv_draw_eve5_sw_render_task(u, t);
+                lv_draw_eve5_sw_render_task(u, draw);
 #else
-                lv_draw_eve5_hal_draw_line(u, t, false, lv_draw_eve5_line_should_use_hv_opt(t, prev_task));
+                lv_draw_eve5_hal_draw_line(u, draw, false, lv_draw_eve5_line_should_use_hv_opt(t, prev_task));
 #endif
                 break;
 
             case LV_DRAW_TASK_TYPE_TRIANGLE:
 #if LV_DRAW_EVE5_SW_TRIANGLE
-                lv_draw_eve5_sw_render_task(u, t);
+                lv_draw_eve5_sw_render_task(u, draw);
 #else
-                lv_draw_eve5_hal_draw_triangle(u, t, false);
+                lv_draw_eve5_hal_draw_triangle(u, draw, false);
 #endif
                 break;
 
             case LV_DRAW_TASK_TYPE_LABEL:
 #if LV_DRAW_EVE5_SW_LABEL
-                lv_draw_eve5_sw_render_task(u, t);
+                lv_draw_eve5_sw_render_task(u, draw);
 #else
 #if LV_DRAW_EVE5_SW_OUTLINE_FONT
                 if(lv_draw_eve5_label_needs_sw(t)) {
-                    lv_draw_eve5_sw_render_task(u, t);
+                    lv_draw_eve5_sw_render_task(u, draw);
                     break;
                 }
 #endif
-                lv_draw_eve5_hal_draw_label(u, t);
+                lv_draw_eve5_hal_draw_label(u, draw);
 #endif
                 break;
 
             case LV_DRAW_TASK_TYPE_LETTER:
 #if LV_DRAW_EVE5_SW_LABEL
-                lv_draw_eve5_sw_render_task(u, t);
+                lv_draw_eve5_sw_render_task(u, draw);
 #else
-                lv_draw_eve5_hal_draw_letter(u, t);
+                lv_draw_eve5_hal_draw_letter(u, draw);
 #endif
                 break;
 
             case LV_DRAW_TASK_TYPE_IMAGE:
-                lv_draw_eve5_hal_draw_image(u, t, false);
+                lv_draw_eve5_hal_draw_image(u, draw, false);
                 break;
 
             case LV_DRAW_TASK_TYPE_ARC:
 #if LV_DRAW_EVE5_SW_ARC
-                lv_draw_eve5_sw_render_task(u, t);
+                lv_draw_eve5_sw_render_task(u, draw);
 #else
-                lv_draw_eve5_hal_draw_arc(u, t, false);
+                lv_draw_eve5_hal_draw_arc(u, draw, false);
 #endif
                 break;
 
@@ -383,25 +431,30 @@ int lv_draw_eve5_render_tasks(lv_draw_eve5_unit_t * u, lv_layer_t * layer, bool 
                         break;
                     }
 
-                    lv_draw_eve5_hal_draw_image(u, t, false);
+                    lv_draw_eve5_hal_draw_image(u, draw, false);
                     break;
                 }
 
             case LV_DRAW_TASK_TYPE_BOX_SHADOW:
+                if(u->degrade_level >= 1) {
+                    const lv_draw_box_shadow_dsc_t * shadow = t->draw_dsc;
+                    u->task_degraded |= shadow->opa > LV_OPA_MIN && shadow->width > 0;
+                    break;
+                }
 #if LV_DRAW_EVE5_SW_BOX_SHADOW
-                lv_draw_eve5_sw_render_task(u, t);
+                lv_draw_eve5_sw_render_task(u, draw);
 #else
-                lv_draw_eve5_hal_draw_box_shadow(u, t);
+                lv_draw_eve5_hal_draw_box_shadow(u, draw);
 #endif
                 break;
 
             case LV_DRAW_TASK_TYPE_MASK_RECTANGLE:
-                lv_draw_eve5_hal_draw_mask_rect(u, t);
+                lv_draw_eve5_hal_draw_mask_rect(u, draw);
                 break;
 
 #if LV_USE_VECTOR_GRAPHIC && LV_DRAW_EVE5_SW_VECTOR
             case LV_DRAW_TASK_TYPE_VECTOR:
-                lv_draw_eve5_sw_render_task(u, t);
+                lv_draw_eve5_sw_render_task(u, draw);
                 break;
 #endif
 
@@ -423,12 +476,14 @@ int lv_draw_eve5_render_tasks(lv_draw_eve5_unit_t * u, lv_layer_t * layer, bool 
         }
 #endif
 
+        if(u->task_degraded && u->degrade_level > 0) lv_draw_eve5_stats.degraded_tasks[u->degrade_level - 1]++;
         if(finish_tasks) t->state = LV_DRAW_TASK_STATE_FINISHED;
         rendered_count++;
         prev_task = t;
         t = t->next;
     }
 
+    u->degrade_level = 0;
     return rendered_count;
 }
 

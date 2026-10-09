@@ -521,6 +521,23 @@ typedef struct {
     uint32_t alpha;  /**< Direct-to-alpha pass */
 } lv_draw_eve5_dl_bound_t;
 
+/* NORT planning needs no allocation or per-task fields. Boundaries are task
+ * pointers, and matching fill/border pairs are indivisible planning units. */
+typedef struct {
+    lv_draw_task_t * boundary[2];
+    uint64_t remaining[3];
+    uint8_t level;
+    bool refined;
+} lv_draw_eve5_degrade_plan_t;
+
+typedef union {
+    lv_draw_fill_dsc_t fill;
+    lv_draw_triangle_dsc_t triangle;
+    lv_draw_label_dsc_t label;
+    lv_draw_letter_dsc_t letter;
+    lv_draw_image_dsc_t image;
+} lv_draw_eve5_degrade_dsc_t;
+
 /* Budget state of the RGB pass of one slice */
 typedef struct {
     uint32_t reserve;        /**< Entries that must follow the RGB pass; grows with each task's alpha and mask cost */
@@ -651,6 +668,9 @@ typedef struct {
 
     /* Re-entrancy guard for SW fallback */
     bool rendering_in_progress;
+
+    uint8_t degrade_level;       /**< Current NORT task policy; zero outside its RGB pass */
+    bool task_degraded;          /**< The current planning unit actually lost an effect */
 
     /* Dispatch-scoped hint: the next vram_alloc_cb is allocating a canvas
      * layer's buffer (draw_buf-backed, parentless, not the screen). Set
@@ -1374,6 +1394,15 @@ int lv_draw_eve5_render_tasks(lv_draw_eve5_unit_t * u, lv_layer_t * layer, bool 
 lv_draw_task_t * lv_draw_eve5_fill_matching_border(lv_draw_task_t * t, const lv_draw_task_t * end);
 
 /* Display list budget (lv_draw_eve5_dl_bound.c) */
+void lv_draw_eve5_degrade_bounds(lv_draw_eve5_unit_t * u, lv_draw_task_t * t,
+                               const lv_draw_task_t * end, bool refined, uint32_t cost[3]);
+void lv_draw_eve5_degrade_plan(lv_draw_eve5_unit_t * u, lv_draw_task_t * start,
+                             const lv_draw_task_t * end, uint32_t available, lv_draw_eve5_degrade_plan_t * plan);
+void lv_draw_eve5_degrade_replan(lv_draw_eve5_unit_t * u, lv_draw_task_t * start,
+                               const lv_draw_task_t * end, uint32_t available, lv_draw_eve5_degrade_plan_t * plan);
+bool lv_draw_eve5_degrade_task(lv_draw_task_t * task, lv_draw_eve5_degrade_dsc_t * dsc, uint8_t level);
+void lv_draw_eve5_label_dl_bounds(const lv_draw_task_t * t, bool clipped, uint32_t cost[3]);
+void lv_draw_eve5_line_dl_bounds(const lv_draw_task_t * t, uint32_t cost[3]);
 uint32_t lv_draw_eve5_dl_budget(EVE_HalContext * phost);
 void lv_draw_eve5_task_dl_bound(lv_draw_eve5_unit_t * u, lv_draw_task_t * t, const lv_draw_task_t * end,
                                 lv_draw_eve5_dl_bound_t * bound);
