@@ -4,7 +4,7 @@
 #include "src/misc/cache/instance/lv_image_cache.h"
 #include "unity/unity.h"
 #include "src/drivers/display/eve5/lv_eve5.h"
-#include "src/draw/eve5/lv_draw_eve5.h"
+#include "src/draw/eve5/lv_draw_eve5_private.h"
 #include "../lv_test_eve5.h"
 
 static lv_draw_buf_t * image;
@@ -270,7 +270,12 @@ void test_eve5_degradation_stats_follow_rendered_frames(void)
     lv_obj_set_style_line_dash_gap(line, 3, 0);
     lv_refr_now(disp);
     uint32_t degraded = lv_draw_eve5_get_stats()->degraded_tasks[0];
+#if LV_DRAW_EVE5_NORT_DEGRADE
     TEST_ASSERT_GREATER_THAN_UINT32(0, degraded);
+#else
+    TEST_ASSERT_EQUAL_UINT32(0, degraded);
+#endif
+    TEST_ASSERT_EQUAL_UINT32(0, lv_draw_eve5_get_stats()->degraded_tasks[1]);
     TEST_ASSERT_TRUE(lv_test_screenshot_read(frame));
     lv_refr_now(disp); /* Empty refresh: preserve displayed-frame diagnostics. */
     TEST_ASSERT_TRUE(lv_test_screenshot_read(frame));

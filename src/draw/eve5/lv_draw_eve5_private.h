@@ -114,6 +114,13 @@ extern "C" {
 /* L8 render-target alpha recovery for tasks that trash alpha. See lv_draw_eve5.c header. */
 #define EVE5_USE_RENDERTARGET_ALPHA 1
 
+/* Experimental whole-frame NORT degradation planner. Conservative task bounds
+ * can remove effects from scenes that fit without degradation, so keep this
+ * off by default. The ordinary per-task capacity/readback guard stays active. */
+#ifndef LV_DRAW_EVE5_NORT_DEGRADE
+#define LV_DRAW_EVE5_NORT_DEGRADE 0
+#endif
+
 /* Diagnostics: log the display list entries each task and each render target
  * use, measured with REG_CMD_DL after draining the command FIFO (slow) */
 #ifndef EVE5_DL_STATS

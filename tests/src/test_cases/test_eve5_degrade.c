@@ -147,7 +147,7 @@ void test_nort_actual_hal_savings_recover_all_gradient_effects(void)
     TEST_ASSERT_EQUAL_UINT8(0, unit->degrade_level);
 }
 
-void test_nort_long_polyline_degrades_without_losing_the_following_task(void)
+void test_nort_long_polyline_obeys_the_degradation_switch(void)
 {
     if(EVE_Hal_supportRenderTarget(unit->hal)) TEST_IGNORE_MESSAGE("NORT renderer policy");
     lv_point_precise_t points[71];
@@ -167,10 +167,18 @@ void test_nort_long_polyline_degrades_without_losing_the_following_task(void)
     lv_draw_eve5_dl_start(unit);
     lv_draw_eve5_slice_t slice = {0};
     lv_draw_eve5_budget_t budget = {.reserve = 2};
+#if LV_DRAW_EVE5_NORT_DEGRADE
     TEST_ASSERT_EQUAL_INT(2, lv_draw_eve5_render_tasks(unit, &layer, true, true, &slice, &budget));
     TEST_ASSERT_NULL(budget.stop);
     TEST_ASSERT_EQUAL(LV_DRAW_TASK_STATE_FINISHED, tasks[1].state);
     TEST_ASSERT_EQUAL_UINT32(before.degraded_tasks[0] + 1, lv_draw_eve5_get_stats()->degraded_tasks[0]);
+#else
+    TEST_ASSERT_EQUAL_INT(0, lv_draw_eve5_render_tasks(unit, &layer, true, true, &slice, &budget));
+    TEST_ASSERT_EQUAL_PTR(tasks, budget.stop);
+    TEST_ASSERT_EQUAL(LV_DRAW_TASK_STATE_QUEUED, tasks[1].state);
+    TEST_ASSERT_EQUAL_UINT32(before.degraded_tasks[0], lv_draw_eve5_get_stats()->degraded_tasks[0]);
+#endif
+    TEST_ASSERT_EQUAL_UINT32(before.degraded_tasks[1], lv_draw_eve5_get_stats()->degraded_tasks[1]);
     TEST_ASSERT_TRUE(EVE_Cmd_waitFlush(unit->hal));
     EVE_HalContext * phost = unit->hal;
     TEST_ASSERT_LESS_OR_EQUAL_UINT32(lv_draw_eve5_dl_budget(phost) - 2, EVE_Hal_rd32(phost, REG_CMD_DL) / 4);

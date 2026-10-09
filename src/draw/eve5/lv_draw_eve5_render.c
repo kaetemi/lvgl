@@ -204,13 +204,15 @@ int lv_draw_eve5_render_tasks(lv_draw_eve5_unit_t * u, lv_layer_t * layer, bool 
     int rendered_count = 0;
 
     budget->stop = slice->end;
+    u->degrade_level = 0;
+#if LV_DRAW_EVE5_NORT_DEGRADE
     bool nort = !EVE_Hal_supportRenderTarget(phost);
     lv_draw_eve5_degrade_plan_t plan;
-    u->degrade_level = 0;
     if(nort) {
         uint32_t used = phost->DlEntries + budget->reserve;
         lv_draw_eve5_degrade_plan(u, t, slice->end, used < dl_budget ? dl_budget - used : 0, &plan);
     }
+#endif
 
     while(t && t != slice->end) {
         if(t->preferred_draw_unit_id != DRAW_UNIT_ID_EVE5 ||
@@ -223,6 +225,7 @@ int lv_draw_eve5_render_tasks(lv_draw_eve5_unit_t * u, lv_layer_t * layer, bool 
         /* Display list budget: the entries written so far, this task's bound,
          * and everything that must still follow in this display list */
         lv_draw_eve5_dl_bound_t bound;
+#if LV_DRAW_EVE5_NORT_DEGRADE
         uint32_t costs[3] = {0};
         if(nort) {
             /* At a planned quality drop, replace the prefix estimate with
@@ -238,12 +241,17 @@ int lv_draw_eve5_render_tasks(lv_draw_eve5_unit_t * u, lv_layer_t * layer, bool 
             bound.rgb = costs[plan.level];
             bound.alpha = 0;
         }
-        else lv_draw_eve5_task_dl_bound(u, t, slice->end, &bound);
+        else
+#endif
+            lv_draw_eve5_task_dl_bound(u, t, slice->end, &bound);
         bool deferred_mask = !is_screen && t->type == LV_DRAW_TASK_TYPE_MASK_RECTANGLE;
         uint32_t rgb = deferred_mask ? 0 : bound.rgb;
         uint32_t after = deferred_mask ? bound.rgb : (budget->alpha_pass ? bound.alpha : 0);
         if(phost->DlEntries + rgb + budget->reserve + after > dl_budget) {
-            if(!nort) lv_draw_eve5_task_dl_bound_refine(t, &bound);
+#if LV_DRAW_EVE5_NORT_DEGRADE
+            if(!nort)
+#endif
+                lv_draw_eve5_task_dl_bound_refine(t, &bound);
             rgb = deferred_mask ? 0 : bound.rgb;
             after = deferred_mask ? bound.rgb : (budget->alpha_pass ? bound.alpha : 0);
         }
@@ -286,12 +294,14 @@ int lv_draw_eve5_render_tasks(lv_draw_eve5_unit_t * u, lv_layer_t * layer, bool 
                             phost->DlEntries, rgb, budget->reserve + after, dl_budget);
             }
         }
+#if LV_DRAW_EVE5_NORT_DEGRADE
         if(nort) {
             for(unsigned i = 0; i < 3; i++) {
                 LV_ASSERT(plan.remaining[i] >= costs[i]);
                 plan.remaining[i] -= costs[i];
             }
         }
+#endif
         budget->reserve += after;
 
         if(deferred_mask) {
@@ -312,15 +322,17 @@ int lv_draw_eve5_render_tasks(lv_draw_eve5_unit_t * u, lv_layer_t * layer, bool 
                  task_type_str(t->type),
                  t->area.x1, t->area.y1, t->area.x2, t->area.y2);
 
-        lv_draw_task_t draw_task;
-        lv_draw_eve5_degrade_dsc_t degraded_dsc;
         u->task_degraded = false;
         lv_draw_task_t * draw = t;
+#if LV_DRAW_EVE5_NORT_DEGRADE
+        lv_draw_task_t draw_task;
+        lv_draw_eve5_degrade_dsc_t degraded_dsc;
         if(u->degrade_level) {
             draw_task = *t;
             u->task_degraded = lv_draw_eve5_degrade_task(&draw_task, &degraded_dsc, u->degrade_level);
             draw = &draw_task;
         }
+#endif
         switch(t->type) {
             case LV_DRAW_TASK_TYPE_FILL: {
                     /* Matching BORDER from the same lv_draw_rect(): unified rendering */
