@@ -28,7 +28,7 @@
  * DEFINES
  *********************/
 
-#if EVE5_DEBUG_LOG || EVE5_DL_STATS
+#if EVE5_DEBUG_LOG || EVE5_DL_STATS || (LV_USE_PROFILER && LV_PROFILER_DRAW)
 static const char * task_type_str(lv_draw_task_type_t type)
 {
     switch(type) {
@@ -203,6 +203,7 @@ lv_draw_task_t * lv_draw_eve5_fill_matching_border(lv_draw_task_t * t, const lv_
 int lv_draw_eve5_render_tasks(lv_draw_eve5_unit_t * u, lv_layer_t * layer, bool is_screen, bool finish_tasks,
                               const lv_draw_eve5_slice_t * slice, lv_draw_eve5_budget_t * budget)
 {
+    LV_PROFILER_DRAW_BEGIN;
     EVE_HalContext * phost = u->hal;
     uint32_t dl_budget = lv_draw_eve5_dl_budget(phost);
     lv_draw_task_t * t = eve5_slice_first(slice, layer);
@@ -220,7 +221,9 @@ int lv_draw_eve5_render_tasks(lv_draw_eve5_unit_t * u, lv_layer_t * layer, bool 
     }
 #endif
 
+    LV_PROFILER_COUNTER_INIT(render_visits);
     while(t && t != slice->end) {
+        LV_PROFILER_COUNTER_INC(render_visits);
         if(t->preferred_draw_unit_id != DRAW_UNIT_ID_EVE5 ||
            t->state != LV_DRAW_TASK_STATE_QUEUED) {
             prev_task = t;
@@ -339,6 +342,7 @@ int lv_draw_eve5_render_tasks(lv_draw_eve5_unit_t * u, lv_layer_t * layer, bool 
             draw = &draw_task;
         }
 #endif
+        LV_PROFILER_DRAW_BEGIN_TAG(task_type_str(t->type));
         switch(t->type) {
             case LV_DRAW_TASK_TYPE_FILL: {
                     /* Matching BORDER from the same lv_draw_rect(): unified rendering */
@@ -480,6 +484,7 @@ int lv_draw_eve5_render_tasks(lv_draw_eve5_unit_t * u, lv_layer_t * layer, bool 
                 EVE5_LOG("EVE5:   Unhandled task type %d, skipping", t->type);
                 break;
         }
+        LV_PROFILER_DRAW_END_TAG(task_type_str(t->type));
 
 #if EVE5_DL_STATS
         EVE_Cmd_waitFlush(u->hal);
@@ -502,6 +507,8 @@ int lv_draw_eve5_render_tasks(lv_draw_eve5_unit_t * u, lv_layer_t * layer, bool 
     }
 
     u->degrade_level = 0;
+    LV_PROFILER_COUNTER_ADD("eve5.render_visits", render_visits);
+    LV_PROFILER_DRAW_END;
     return rendered_count;
 }
 

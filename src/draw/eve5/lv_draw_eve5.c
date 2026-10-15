@@ -366,8 +366,11 @@ static int32_t dispatch(lv_draw_unit_t * draw_unit, lv_layer_t * layer)
     int32_t finished_count = 0;
     int32_t in_progress_count = 0;
 
+    LV_PROFILER_DRAW_BEGIN_TAG("eve5.collect");
+    LV_PROFILER_COUNTER_INIT(state_visits);
     t = layer->draw_task_head;
     while(t) {
+        LV_PROFILER_COUNTER_INC(state_visits);
         if(t->preferred_draw_unit_id == DRAW_UNIT_ID_EVE5) {
             switch(t->state) {
                 case LV_DRAW_TASK_STATE_WAITING:
@@ -389,6 +392,7 @@ static int32_t dispatch(lv_draw_unit_t * draw_unit, lv_layer_t * layer)
         }
         t = t->next;
     }
+    LV_PROFILER_COUNTER_ADD("eve5.state_visits", state_visits);
 
     EVE5_LOG("EVE5: Dispatch layer=%p parent=%p | W=%d Q=%d B=%d F=%d P=%d",
              (void *)layer, (void *)layer->parent,
@@ -413,7 +417,9 @@ static int32_t dispatch(lv_draw_unit_t * draw_unit, lv_layer_t * layer)
         EVE5_LOG("EVE5: -> Queueing %d tasks", waiting_count);
 
         t = layer->draw_task_head;
+        LV_PROFILER_COUNTER_INIT(claim_visits);
         while(t) {
+            LV_PROFILER_COUNTER_INC(claim_visits);
             if(t->preferred_draw_unit_id == DRAW_UNIT_ID_EVE5 &&
                t->state == LV_DRAW_TASK_STATE_WAITING) {
                 t->state = LV_DRAW_TASK_STATE_QUEUED;
@@ -425,10 +431,13 @@ static int32_t dispatch(lv_draw_unit_t * draw_unit, lv_layer_t * layer)
             }
             t = t->next;
         }
+        LV_PROFILER_COUNTER_ADD("eve5.claim_visits", claim_visits);
 
         lv_draw_dispatch_request();
+        LV_PROFILER_DRAW_END_TAG("eve5.collect");
         return waiting_count;
     }
+    LV_PROFILER_DRAW_END_TAG("eve5.collect");
 
     /* All tasks queued and ready - render atomically */
     if(queued_count > 0 && layer->all_tasks_added && blocked_count == 0 && waiting_count == 0) {
@@ -468,7 +477,9 @@ static int32_t dispatch(lv_draw_unit_t * draw_unit, lv_layer_t * layer)
         }
 #endif
 
+        LV_PROFILER_DRAW_BEGIN_TAG("eve5.render_layer");
         eve5_render_layer(u, layer);
+        LV_PROFILER_DRAW_END_TAG("eve5.render_layer");
         lv_draw_dispatch_request();
         return 1;
     }

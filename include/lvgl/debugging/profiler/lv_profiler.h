@@ -53,6 +53,18 @@ extern "C" {
 #define LV_PROFILER_END_TAG(tag)   LV_UNUSED(tag)
 #endif /*LV_PROFILER_END_TAG*/
 
+/* Optional aggregate counters. Keep list-walk increments local and report once
+ * after the walk so profiling does not add a callback to every iteration. */
+#ifndef LV_PROFILER_COUNTER_INIT
+#define LV_PROFILER_COUNTER_INIT(var)
+#endif
+#ifndef LV_PROFILER_COUNTER_INC
+#define LV_PROFILER_COUNTER_INC(var)
+#endif
+#ifndef LV_PROFILER_COUNTER_ADD
+#define LV_PROFILER_COUNTER_ADD(tag, value)
+#endif
+
 #if LV_USE_PROFILER && LV_PROFILER_LAYOUT
 #define LV_PROFILER_LAYOUT_BEGIN LV_PROFILER_BEGIN
 #define LV_PROFILER_LAYOUT_END LV_PROFILER_END
