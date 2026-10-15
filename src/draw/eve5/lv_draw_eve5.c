@@ -375,6 +375,9 @@ static int32_t dispatch(lv_draw_unit_t * draw_unit, lv_layer_t * layer)
             switch(t->state) {
                 case LV_DRAW_TASK_STATE_WAITING:
                     waiting_count++;
+                    /*Claim while counting; revisiting the retained list for each
+                     *new task adds another quadratic walk during collection.*/
+                    t->state = LV_DRAW_TASK_STATE_QUEUED;
                     break;
                 case LV_DRAW_TASK_STATE_QUEUED:
                     queued_count++;
@@ -393,11 +396,13 @@ static int32_t dispatch(lv_draw_unit_t * draw_unit, lv_layer_t * layer)
         t = t->next;
     }
     LV_PROFILER_COUNTER_ADD("eve5.state_visits", state_visits);
+    LV_PROFILER_COUNTER_ADD("eve5.claim_visits", 0);
 
     EVE5_LOG("EVE5: Dispatch layer=%p parent=%p | W=%d Q=%d B=%d F=%d P=%d",
              (void *)layer, (void *)layer->parent,
              waiting_count, queued_count, blocked_count, finished_count, in_progress_count);
 
+#if EVE5_DEBUG_LOG
     t = layer->draw_task_head;
     int task_idx = 0;
     while(t) {
@@ -411,27 +416,11 @@ static int32_t dispatch(lv_draw_unit_t * draw_unit, lv_layer_t * layer)
         task_idx++;
         t = t->next;
     }
+#endif
 
-    /* New tasks arrived - claim them */
+    /*New tasks were claimed above. Preserve the dispatch boundary before rendering.*/
     if(waiting_count > 0) {
         EVE5_LOG("EVE5: -> Queueing %d tasks", waiting_count);
-
-        t = layer->draw_task_head;
-        LV_PROFILER_COUNTER_INIT(claim_visits);
-        while(t) {
-            LV_PROFILER_COUNTER_INC(claim_visits);
-            if(t->preferred_draw_unit_id == DRAW_UNIT_ID_EVE5 &&
-               t->state == LV_DRAW_TASK_STATE_WAITING) {
-                t->state = LV_DRAW_TASK_STATE_QUEUED;
-            }
-            else if(t->state != LV_DRAW_TASK_STATE_QUEUED) {
-                EVE5_LOG("EVE5: -> Skipping task type=%s state=%s",
-                         task_type_str(t->type),
-                         task_state_str(t->state));
-            }
-            t = t->next;
-        }
-        LV_PROFILER_COUNTER_ADD("eve5.claim_visits", claim_visits);
 
         lv_draw_dispatch_request();
         LV_PROFILER_DRAW_END_TAG("eve5.collect");
