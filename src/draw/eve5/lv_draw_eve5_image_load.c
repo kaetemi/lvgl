@@ -757,10 +757,14 @@ bool lv_draw_eve5_try_load_lvgl_bin_image(lv_draw_eve5_unit_t * u, const void * 
     bool is_premul = (header.flags & LV_IMAGE_FLAGS_PREMULTIPLIED) != 0
                      || lv_cf == LV_COLOR_FORMAT_ARGB8888_PREMULTIPLIED;
 
-    if(w == 0 || h == 0 || lvgl_stride == 0) {
+    uint32_t min_stride = (w * lv_color_format_get_bpp(lv_cf) + 7u) / 8u;
+    if(w == 0 || h == 0 || lvgl_stride < min_stride) {
         lv_fs_close(&file);
         return false;
     }
+    uint64_t required = (uint64_t)lvgl_stride * h;
+    if(lv_cf == LV_COLOR_FORMAT_RGB565A8) required += (uint64_t)(lvgl_stride / 2) * h;
+    else if(LV_COLOR_FORMAT_IS_INDEXED(lv_cf)) required += LV_COLOR_INDEXED_PALETTE_SIZE(lv_cf) * 4u;
 
     EVE_HalContext * phost = u->hal;
     lv_display_t * disp = lv_eve5_disp_from_hal(phost);
@@ -784,6 +788,10 @@ bool lv_draw_eve5_try_load_lvgl_bin_image(lv_draw_eve5_unit_t * u, const void * 
         uint32_t steal_size = 0;
         if(lv_eve5_sdcard_steal_ramg(file.file_d, &steal_alloc, &steal_handle, &steal_size)) {
             lv_fs_close(&file);
+            if(steal_size < sizeof(header) || required > steal_size - sizeof(header)) {
+                EVE_GpuAlloc_Free(steal_alloc, steal_handle);
+                return false;
+            }
 
             bool premul_out = is_premul;
             uint16_t fmt = eve5_lvgl_bin_cf_to_eve_format(lv_cf, &premul_out);
@@ -836,7 +844,14 @@ bool lv_draw_eve5_try_load_lvgl_bin_image(lv_draw_eve5_unit_t * u, const void * 
         lv_fs_close(&file);
         return false;
     }
-    uint32_t body_size = file_size - sizeof(header);
+    /* Raw flash paths expose the remaining device extent as their length.
+     * The uncompressed image header already describes the complete payload;
+     * don't read unrelated following assets or padding into a host buffer. */
+    if(required > file_size - sizeof(header)) {
+        lv_fs_close(&file);
+        return false;
+    }
+    uint32_t body_size = (uint32_t)required;
 
     uint8_t * body = lv_malloc(body_size);
     if(body == NULL) {

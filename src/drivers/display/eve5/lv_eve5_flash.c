@@ -316,9 +316,10 @@ static lv_fs_res_t fs_read(lv_fs_drv_t * drv, void * file_p, void * buf, uint32_
     }
 
     uint32_t abs_addr = file->flash_addr + file->pos;
-    uint32_t aligned_src = ALIGN_DOWN(abs_addr, 64);
-    uint32_t head_pad = abs_addr - aligned_src;
-    uint32_t aligned_num = ALIGN_UP(head_pad + to_read, 4);
+    uint32_t head_pad = abs_addr & 63u;
+    /* The destination is CPU memory. A large read must not require the same
+     * amount of scarce RAM_G just to stage it (BT819 has only 2 MiB). */
+    uint32_t staging_size = LV_MIN(ALIGN_UP(head_pad + to_read, 4), 64u * 1024u);
 
 #if LV_USE_OS
     lv_eve5_hal_lock(ctx->disp);
@@ -333,11 +334,11 @@ static lv_fs_res_t fs_read(lv_fs_drv_t * drv, void * file_p, void * buf, uint32_
         return LV_FS_RES_FS_ERR;
     }
 
-    EVE_GpuHandle handle = EVE_GpuAlloc_Alloc(ctx->alloc, aligned_num, GA_ALIGN_4);
+    EVE_GpuHandle handle = EVE_GpuAlloc_Alloc(ctx->alloc, staging_size, GA_ALIGN_4);
     uint32_t ramg_addr = EVE_GpuAlloc_Get(ctx->alloc, handle);
 
     if(ramg_addr == GA_INVALID) {
-        LV_LOG_ERROR("Failed to allocate %u bytes in RAM_G for flash read", aligned_num);
+        LV_LOG_ERROR("Failed to allocate %u bytes in RAM_G for flash read", staging_size);
 #if LV_USE_OS
         lv_eve5_hal_unlock(ctx->disp);
 #endif
@@ -357,26 +358,34 @@ static lv_fs_res_t fs_read(lv_fs_drv_t * drv, void * file_p, void * buf, uint32_
     }
     ctx->hal->SuppressErrorOverlay = true;
 
-    EVE_CoCmd_flashRead(ctx->hal, ramg_addr, aligned_src, aligned_num);
-    if(!EVE_Cmd_waitFlush(ctx->hal)) {
-        LV_LOG_ERROR("CMD_FLASHREAD failed (src=0x%08X, num=%u)", aligned_src, aligned_num);
-        if(ctx->hal->CmdFault) lv_eve5_reset_coprocessor(ctx->disp);
-        EVE_GpuAlloc_Free(ctx->alloc, handle);
-        ctx->hal->SuppressErrorOverlay = false;
-#if LV_USE_OS
-        lv_eve5_hal_unlock(ctx->disp);
-#endif
-        if(br) *br = 0;
-        return LV_FS_RES_FS_ERR;
+    uint32_t done = 0;
+    bool ok = true;
+    while(done < to_read) {
+        uint32_t source = abs_addr + done;
+        uint32_t aligned_src = ALIGN_DOWN(source, 64);
+        head_pad = source - aligned_src;
+        uint32_t count = LV_MIN(to_read - done, staging_size - head_pad);
+        uint32_t aligned_num = ALIGN_UP(head_pad + count, 4);
+        EVE_CoCmd_flashRead(ctx->hal, ramg_addr, aligned_src, aligned_num);
+        if(!EVE_Cmd_waitFlush(ctx->hal)) {
+            LV_LOG_ERROR("CMD_FLASHREAD failed (src=0x%08X, num=%u)", aligned_src, aligned_num);
+            if(ctx->hal->CmdFault) lv_eve5_reset_coprocessor(ctx->disp);
+            ok = false;
+            break;
+        }
+        eve5_read_ramg_bytes(ctx->hal, (uint8_t *)buf + done, ramg_addr + head_pad, count);
+        done += count;
     }
     ctx->hal->SuppressErrorOverlay = false;
-
-    eve5_read_ramg_bytes(ctx->hal, buf, ramg_addr + head_pad, to_read);
     EVE_GpuAlloc_Free(ctx->alloc, handle);
 
 #if LV_USE_OS
     lv_eve5_hal_unlock(ctx->disp);
 #endif
+    if(!ok) {
+        if(br) *br = 0;
+        return LV_FS_RES_FS_ERR;
+    }
 
     file->pos += to_read;
     if(br) *br = to_read;
@@ -520,7 +529,9 @@ bool lv_eve5_flash_load_image(const char * path, EVE_GpuHandle *handle,
      * drives EVE_probeResource on the bytes. `scan_limit` bounds the SW scan
      * to the flash extent that's actually addressable — the probe normally
      * completes well within the first chunk for any real JPEG/PNG header. */
-    uint32_t opts = OPT_TRUECOLOR;
+    /* Match the draw unit's host-file policy: compact NORT surfaces and
+     * truecolor on render-target chips. Grayscale JPEGs use OPT_MONO below. */
+    uint32_t opts = EVE_Hal_supportRenderTarget(phost) ? OPT_TRUECOLOR : 0;
     uint32_t scan_limit = s_ctx.flash_size_bytes - flash_addr;
     EVE_ResourceType hint = is_jpeg ? EVE_RESOURCE_JPEG : EVE_RESOURCE_PNG;
 
@@ -611,14 +622,24 @@ bool lv_eve5_flash_load_image(const char * path, EVE_GpuHandle *handle,
     lv_eve5_hal_unlock(s_ctx.disp);
 #endif
 
-    /* Paletted layout is palette-front: palette (PaletteSize bytes) at base+0,
-     * decoded bitmap at base+PaletteSize. PaletteSize == 0 for non-paletted. */
+    /* EVE3/BT820 place the palette first; EVE4 places it after the pixels.
+     * Use the query contract, as the host and SD loaders do. */
     *handle = final_handle;
     *width = info.Width;
     *height = info.Height;
     *format = info.Format;
-    if(image_offset) *image_offset = info.PaletteSize;
-    if(palette_offset) *palette_offset = (info.PaletteSize > 0) ? 0u : GA_INVALID;
+    if(info.PaletteSize == 0) {
+        if(image_offset) *image_offset = 0;
+        if(palette_offset) *palette_offset = GA_INVALID;
+    }
+    else if(info.Flags & EVE_RESOURCE_FLAG_PALETTE_AFTER_DATA) {
+        if(image_offset) *image_offset = 0;
+        if(palette_offset) *palette_offset = info.Stride * info.Height;
+    }
+    else {
+        if(image_offset) *image_offset = info.PaletteSize;
+        if(palette_offset) *palette_offset = 0;
+    }
 
     LV_LOG_INFO("EVE5 flash: loaded %s (%ux%u fmt=%u size=%u palette=%u)",
                 path, (unsigned)info.Width, (unsigned)info.Height,
