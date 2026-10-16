@@ -176,8 +176,6 @@ if(CONFIG_LV_USE_DRAW_VG_LITE)
     set(REF_IMGS_PATH "ref_imgs_vg_lite/")
 elseif(CONFIG_LV_USE_DRAW_NANOVG)
     set(REF_IMGS_PATH "ref_imgs_nanovg/")
-elseif(CONFIG_LV_USE_DRAW_EVE5)
-    set(REF_IMGS_PATH "ref_imgs_eve5/")
 else()
     set(REF_IMGS_PATH "ref_imgs/")
 endif()
@@ -231,9 +229,14 @@ file(GLOB_RECURSE TEST_IMAGES_SRC
     ${LVGL_TEST_DIR}/test_images/*.c
     ${LVGL_ROOT_DIR}/examples/assets/*.c)
 
+set(LV_TEST_INIT_SOURCE "${LVGL_TEST_DIR}/src/lv_test_init.c" CACHE FILEPATH
+    "Project-provided test initialization, or the standard LVGL test display")
+set(LV_TEST_EXTRA_SOURCES "" CACHE STRING "Additional project test support sources")
+set(LV_TEST_EXTERNAL_CONFIG "" CACHE FILEPATH "Project CMake extension for external tests")
+
 add_library(test_common STATIC
-    src/lv_test_init.c
-    src/lv_test_eve5.c
+    ${LV_TEST_INIT_SOURCE}
+    ${LV_TEST_EXTRA_SOURCES}
     unity/unity.c
     ${TEST_ASSETS_SRC}
     ${TEST_IMAGES_SRC}
@@ -262,42 +265,6 @@ endif()
 
 lvgl_add_test_folder_if(NOT CONFIG_LV_CHECK_ARG_ASSERT_ON_FAIL test_cases/public_api)
 lvgl_get_test_files(TEST_CASE_FILES)
-if(CONFIG_LV_USE_EVE5)
-    set(LV_TEST_EVE_DEVICE "BT8XX" CACHE STRING
-        "EVE device the EVE5 tests open, the start of the HAL host name")
-    set(LV_TEST_EVE_CHIP "BT820" CACHE STRING
-        "Chip the EVE5 tests emulate in multi graphics target builds")
-    # A single-chip eve_apps build fixes the hardware capability regardless
-    # of the runtime emulator selector. Other builds use the selected chip.
-    set(eve5_test_chip "${LV_TEST_EVE_CHIP}")
-    if(EVE_APPS_GRAPHICS MATCHES "^EVE_GRAPHICS_((BT|FT)[0-9]+)$")
-        set(eve5_test_chip "${CMAKE_MATCH_1}")
-    endif()
-    string(TOUPPER "${eve5_test_chip}" eve5_test_chip)
-    if(eve5_test_chip MATCHES "^(BT|FT)[0-9]+$" AND NOT eve5_test_chip STREQUAL "BT820")
-        # NORT renders directly to scanout: varying the target buffer format
-        # does not exercise distinct hardware paths. Keep the ARGB8888 scenes.
-        foreach(test_case_fname ${TEST_CASE_FILES})
-            if(test_case_fname MATCHES "/test_render_to_.*\\.c$" AND
-               NOT test_case_fname MATCHES "/test_render_to_argb8888\\.c$")
-                list(REMOVE_ITEM TEST_CASE_FILES ${test_case_fname})
-            endif()
-        endforeach()
-    endif()
-endif()
-if(NOT CONFIG_LV_USE_EVE5)
-    list(REMOVE_ITEM TEST_CASE_FILES ${LVGL_TEST_DIR}/src/test_cases/test_eve5_alpha.c)
-    list(REMOVE_ITEM TEST_CASE_FILES ${LVGL_TEST_DIR}/src/test_cases/test_eve5_degrade.c)
-    list(REMOVE_ITEM TEST_CASE_FILES ${LVGL_TEST_DIR}/src/test_cases/test_eve5_fill_border.c)
-    list(REMOVE_ITEM TEST_CASE_FILES ${LVGL_TEST_DIR}/src/test_cases/test_eve5_image_upload.c)
-    list(REMOVE_ITEM TEST_CASE_FILES ${LVGL_TEST_DIR}/src/test_cases/test_eve5_bitmap.c)
-    list(REMOVE_ITEM TEST_CASE_FILES ${LVGL_TEST_DIR}/src/test_cases/test_eve5_label_bound.c)
-    list(REMOVE_ITEM TEST_CASE_FILES ${LVGL_TEST_DIR}/src/test_cases/test_eve5_layer_support.c)
-    list(REMOVE_ITEM TEST_CASE_FILES ${LVGL_TEST_DIR}/src/test_cases/test_eve5_screenshot.c)
-endif()
-if(NOT CONFIG_LV_USE_EVE5 OR NOT CONFIG_LV_USE_VECTOR_GRAPHIC OR NOT CONFIG_LV_USE_DRAW_SW OR NOT CONFIG_LV_USE_THORVG)
-    list(REMOVE_ITEM TEST_CASE_FILES ${LVGL_TEST_DIR}/src/test_cases/test_eve5_vector.c)
-endif()
 if(NOT CONFIG_LV_USE_DRAW_SW)
     list(REMOVE_ITEM TEST_CASE_FILES ${LVGL_TEST_DIR}/src/test_cases/draw/test_draw_custom_handlers.c)
 endif()
@@ -321,6 +288,10 @@ if(NOT CONFIG_LV_USE_DEMO_VECTOR_GRAPHIC)
 endif()
 if(NOT CONFIG_LV_USE_LOTTIE)
     list(REMOVE_ITEM TEST_CASE_FILES ${LVGL_TEST_DIR}/src/test_cases/widgets/test_lottie.c)
+endif()
+
+if(LV_TEST_EXTERNAL_CONFIG)
+    include("${LV_TEST_EXTERNAL_CONFIG}")
 endif()
 
 file(GLOB_RECURSE TEST_HELPERS_FILES src/test_helpers/*.c)
@@ -379,14 +350,8 @@ foreach(test_case_fname ${TEST_CASE_FILES})
         WORKING_DIRECTORY ${LVGL_TEST_DIR}
         COMMAND ${test_name})
 
-    if(CONFIG_LV_USE_EVE5)
-        # Select the EVE device of the HAL without prompting, see
-        # EVE_Util_Desktop.c. The emulator runs without a window.
-        set(eve5_test_env
-            "EVE_DEVICE=${LV_TEST_EVE_DEVICE}"
-            "EVE_CHIP=${LV_TEST_EVE_CHIP}"
-            "EVE_HEADLESS=1")
-        set_tests_properties(${test_name} PROPERTIES ENVIRONMENT "${eve5_test_env}")
+    if(LV_TEST_ENVIRONMENT)
+        set_tests_properties(${test_name} PROPERTIES ENVIRONMENT "${LV_TEST_ENVIRONMENT}")
     endif()
 
     if(CONFIG_LV_USE_NANOVG_TEST_HEADLESS)

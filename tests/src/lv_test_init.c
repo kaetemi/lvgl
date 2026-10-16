@@ -1,6 +1,5 @@
 #if LV_BUILD_TEST || LV_BUILD_TEST_PERF
 #include "lv_test_init.h"
-#include "lv_test_eve5.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <assert.h>
@@ -24,8 +23,6 @@ void lv_test_init(void)
     /* LV_ASSERT_MSG is always compiled in (unlike assert() under NDEBUG) and
      * triggers LV_ASSERT_HANDLER, so a fatal setup failure is reported reliably. */
     LV_ASSERT_MSG(egl_disp != NULL, "EGL headless display creation failed");
-#elif LV_USE_EVE5
-    lv_test_eve5_display_create(LV_TEST_DISPLAY_HOR_RES, LV_TEST_DISPLAY_VER_RES);
 #else
     lv_test_display_create(LV_TEST_DISPLAY_HOR_RES, LV_TEST_DISPLAY_VER_RES);
 #endif
@@ -48,9 +45,7 @@ void lv_test_init(void)
 
 void lv_test_case_begin(void)
 {
-#if LV_USE_EVE5
-    lv_test_eve5_case_begin();
-#endif
+
 }
 
 void lv_test_deinit(void)
@@ -66,9 +61,6 @@ void lv_test_deinit(void)
     void * egl_ctx = lv_test_display_egl_get_context(lv_display_get_default());
     lv_deinit();
     lv_test_display_egl_cleanup(egl_ctx);
-#elif LV_USE_EVE5
-    lv_deinit();
-    lv_test_eve5_close();
 #else
     lv_deinit();
 #endif

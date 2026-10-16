@@ -111,31 +111,22 @@ its public API. The test cases that check that a public function behaves correct
 invalid parameters are passed exist in `src/test_cases/public_api`. These tests are only 
 exercised when `LV_CHECK_ARG_ASSERT_ON_FAIL` is disabled.
 
-## EVE5
+## Project-owned test integration
 
-The test suite can run on the EVE5 display driver and draw unit instead of the
-test display, through the EVE HAL on hardware or on the BT8XXEMU emulator.
-`configs/eve5.defconfig` enables them. The EVE HAL is not part of LVGL, so the
-project that provides it builds the tests: eve_apps does with
-`WITH_LVGL_TEST_SUITE=ON`, from the same fragments as `OPTIONS_TEST_SYSHEAP` plus
-`eve5`.
+Projects can keep their renderer adapter and regression cases outside LVGL:
 
-- `lv_test_init()` opens the device with `EVE_Util_openDeviceInteractive()`,
-  which takes its answers from `EVE_DEVICE`, `EVE_CHIP` and `EVE_HEADLESS`, sets
-  up the 800x480 WVGA display and creates the display with `lv_eve5_create()`.
-  CMake sets the variables for ctest from `LV_TEST_EVE_DEVICE` and
-  `LV_TEST_EVE_CHIP`.
-- Screenshots read the frame back from the EVE with `lv_eve5_read_screen()`,
-  registered through `lv_test_screenshot_set_read_cb()`, and compare it with
-  the EVE5 goldens. LVGL doesn't keep them: the project that builds the tests
-  gives their folder with `LV_TEST_REF_IMGS_PATH` in CMake (eve_apps keeps
-  them in `tests/lvgl_suite/ref_imgs_eve5`), else they are looked for in
-  `ref_imgs_eve5`. Tests that inspect the frame themselves can use
-  `lv_test_screenshot_read()`. `eve5.defconfig` turns off the creation of
-  missing reference images: a screenshot without one passes, and the EVE5
-  goldens are only updated on purpose.
-- With `LV_TEST_SCREENSHOT_OUTPUT_PATH` set in CMake, every screenshot is also
-  written there, for comparing the EVE5 output with `ref_imgs` side by side.
+- `LV_TEST_INIT_SOURCE`: replacement for `src/lv_test_init.c`, implementing the
+  same setup, per-case, teardown, and assertion hooks.
+- `LV_TEST_EXTRA_SOURCES`: additional sources linked into `test_common`.
+- `LV_TEST_EXTERNAL_CONFIG`: CMake file included after built-in test selection.
+  It can append absolute source paths to `TEST_CASE_FILES`, filter cases for
+  target capabilities, and add support include directories to `test_common`.
+- `LV_TEST_ENVIRONMENT`: environment entries applied to each registered test.
+
+External cases use the same Unity runner, compiler checks, sanitizers, test
+assets, CTest registration, and screenshot support as built-in cases.
+`LV_TEST_REF_IMGS_PATH` and `LV_TEST_SCREENSHOT_OUTPUT_PATH` select the reference
+and capture folders. Renderer-specific references remain owned by the project.
 
 ## Add new tests
 
