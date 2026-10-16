@@ -278,7 +278,7 @@ static int32_t eve5_delete(lv_draw_unit_t * draw_unit)
 
 void lv_draw_eve5_set_enabled(bool enabled)
 {
-    LV_LOG_WARN("EVE5: set_enabled %d -> %d", (int)s_eve5_enabled, (int)enabled);
+    LV_LOG_INFO("EVE5: set_enabled %d -> %d", (int)s_eve5_enabled, (int)enabled);
     s_eve5_enabled = enabled;
     lv_draw_invalidate_layer_support();
 }

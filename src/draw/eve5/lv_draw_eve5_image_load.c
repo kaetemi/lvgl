@@ -1590,6 +1590,16 @@ static lv_color_format_t eve_format_to_lv_cf(uint16_t eve_fmt, bool prefer_lumin
     }
 }
 
+/* Software image blending consumes byte alpha and expanded palette colors.
+ * Keep packed GPU pixels in vr, but expose LVGL's binary-decoder CPU layout. */
+static lv_color_format_t eve5_cpu_color_format(lv_color_format_t cf)
+{
+    if(cf == LV_COLOR_FORMAT_A1 || cf == LV_COLOR_FORMAT_A2 || cf == LV_COLOR_FORMAT_A4)
+        return LV_COLOR_FORMAT_A8;
+    if(LV_COLOR_FORMAT_IS_INDEXED(cf)) return LV_COLOR_FORMAT_ARGB8888;
+    return cf;
+}
+
 #if !LV_USE_DRAW_VRAM
 /**
  * Complete a hardware decoder open using the cached GPU image from lv_draw_eve5_res_source. With
@@ -1883,7 +1893,7 @@ static lv_result_t eve5_decoder_open(lv_image_decoder_t * decoder,
     if(decoded_vr != NULL && EVE_GpuAlloc_Get(u->allocator, decoded_vr->gpu_handle) != GA_INVALID) {
         lv_color_format_t decoded_cf = is_bin_ext ? (lv_color_format_t)dsc->header.cf
                                        : eve_format_to_lv_cf(decoded_vr->eve_format, is_image_ext);
-        return eve5_decoder_pixels(u, decoder, dsc, decoded_vr, decoded_cf);
+        return eve5_decoder_pixels(u, decoder, dsc, decoded_vr, eve5_cpu_color_format(decoded_cf));
     }
 #endif
 
@@ -2029,8 +2039,8 @@ static lv_result_t eve5_decoder_open(lv_image_decoder_t * decoder,
     /* is_swapchain stays zero — only the driver-owned full_buf vr sets it. */
 
     /* Resolve the LVGL color format the decoded buffer carries:
-     *   - .bin source: respect the bin header's CF verbatim (LVGL L8 / A8 /
-     *     ARGB8888_PREMULTIPLIED etc. — the user's authored intent).
+     *   - .bin source: preserve the authored color/alpha semantics. Expand
+     *     packed alpha and indices in the CPU layout for software drawing.
      *   - HW JPEG / PNG: L8 means a grayscale image (PNG ct=0, JPEG OPT_MONO,
      *     grayscale-palette promotion). Map L8 → LVGL L8 so the draw-time
      *     swizzle renders it as luminance-RGB.
@@ -2044,28 +2054,24 @@ static lv_result_t eve5_decoder_open(lv_image_decoder_t * decoder,
     lv_color_format_t lv_cf = (bin_lv_cf != LV_COLOR_FORMAT_UNKNOWN)
                               ? bin_lv_cf
                               : eve_format_to_lv_cf(eve_format, /*prefer_luminance_for_l8*/ is_image_ext);
+    lv_cf = eve5_cpu_color_format(lv_cf);
     vr->sample_as_luminance = (lv_cf == LV_COLOR_FORMAT_L8);
 #if !LV_USE_DRAW_VRAM
     if(!lv_draw_eve5_res_set_source(u, path, vr)) return LV_RESULT_INVALID;
     LV_LOG_INFO("EVE5 HW decoder: decoded %s (%dx%d fmt=%d)", path, src_w, src_h, eve_format);
     return eve5_decoder_pixels(u, decoder, dsc, vr, lv_cf);
 #else
-    lv_draw_buf_t * decoded = lv_malloc_zeroed(sizeof(lv_draw_buf_t));
+    /* The descriptor describes CPU pixels. Native GPU rows can be packed,
+     * paletted or block-compressed, and need not have the same stride/size.
+     * Keep the GPU layout in vr and reserve LVGL's layout for later readback. */
+    lv_draw_buf_t * decoded = lv_draw_buf_create_ex(lv_draw_buf_get_image_handlers(), src_w, src_h,
+                                                   lv_cf, LV_STRIDE_AUTO);
     if(decoded == NULL) {
         lv_free(vr);
         EVE_GpuAlloc_Free(u->allocator, handle);
         return LV_RESULT_INVALID;
     }
-    decoded->header.magic = LV_IMAGE_HEADER_MAGIC;
-    decoded->header.w = src_w;
-    decoded->header.h = src_h;
-    decoded->header.cf = lv_cf;
-    decoded->header.stride = eve_stride;
     decoded->header.flags = LV_IMAGE_FLAGS_ALLOCATED;
-    decoded->data_size = alloc_size;
-    decoded->data = NULL;
-    decoded->unaligned_data = NULL;
-    decoded->handlers = lv_draw_buf_get_image_handlers();
     lv_draw_eve5_res_set(u, decoded, vr);
 
     dsc->decoded = decoded;
@@ -2083,7 +2089,7 @@ static lv_result_t eve5_decoder_open(lv_image_decoder_t * decoder,
     dsc->header.w = src_w;
     dsc->header.h = src_h;
     dsc->header.cf = lv_cf;
-    dsc->header.stride = eve_stride;
+    dsc->header.stride = decoded->header.stride;
 
     LV_LOG_INFO("EVE5 HW decoder: opened %s (%dx%d fmt=%d) → LVGL cache", path, src_w, src_h, eve_format);
 

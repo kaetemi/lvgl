@@ -317,6 +317,41 @@ bool lv_draw_eve5_download_image(lv_draw_eve5_unit_t * u,
         return true;
     }
 
+    /* A hardware decoder can expose expanded CPU colors while retaining
+     * native palette indices on EVE. Bound the palette read to its allocation,
+     * including short palettes used by I1/I2/I4 uploads. */
+    bool paletted = false;
+#if EVE_SUPPORT_CHIPID >= EVE_BT820
+    paletted = eve_fmt == PALETTEDARGB8;
+#endif
+#if (EVE_SUPPORT_CHIPID >= EVE_FT810) || defined(EVE_MULTI_GRAPHICS_TARGET)
+    paletted = paletted || eve_fmt == PALETTED565 || eve_fmt == PALETTED4444;
+#endif
+    if(paletted && (lv_cf == LV_COLOR_FORMAT_ARGB8888 || lv_cf == LV_COLOR_FORMAT_ARGB8888_PREMULTIPLIED)) {
+        if(vr->palette_offset == GA_INVALID || vr->palette_offset >= vr->base.size) return false;
+        uint32_t bytes = vr->base.size - vr->palette_offset;
+        if(vr->source_offset > vr->palette_offset) bytes = LV_MIN(bytes, vr->source_offset - vr->palette_offset);
+        uint32_t palette_bpp = 2;
+#if EVE_SUPPORT_CHIPID >= EVE_BT820
+        if(eve_fmt == PALETTEDARGB8) palette_bpp = 4;
+#endif
+        uint32_t entries = LV_MIN(256u, bytes / palette_bpp);
+        uint8_t palette[256 * 4];
+        if(!download_palette(u, vr, palette, entries)) return false;
+        row_reader_t rd;
+        if(!row_reader_init(&rd, u->hal, gpu_addr, eve_stride, h)) return false;
+        for(int32_t y = 0; y < h; y++) {
+            const uint8_t * row = row_reader_row(&rd, y);
+            uint8_t * dst = buf->data + y * lv_stride;
+            for(int32_t x = 0; x < w; x++) {
+                if(row[x] >= entries) { lv_free(rd.buf); return false; }
+                lv_memcpy(dst + x * 4, palette + row[x] * 4, 4);
+            }
+        }
+        lv_free(rd.buf);
+        return true;
+    }
+
     /* Conversion path: read into temp buffer, convert per row */
     row_reader_t rd;
     uint8_t * row_buf;
@@ -475,10 +510,55 @@ generic_download: {
                                     b = (b4 << 4) | b4;
                                     break;
                                 }
-                            case L8:
-                                r = g = b = row_buf[x];
-                                break;
+                            case RGB332: {
+                                    uint8_t c = row_buf[x];
+                                    uint8_t r3 = c >> 5, g3 = (c >> 2) & 7;
+                                    r = (r3 << 5) | (r3 << 2) | (r3 >> 1);
+                                    g = (g3 << 5) | (g3 << 2) | (g3 >> 1);
+                                    b = (c & 3) * 85;
+                                    break;
+                                }
+                            case L1:
+                            case L4:
+#if (EVE_SUPPORT_CHIPID >= EVE_FT810) || defined(EVE_MULTI_GRAPHICS_TARGET)
+                            case L2:
+#endif
+                            case L8: {
+                                    uint32_t bits = eve_fmt == L1 ? 1 : eve_fmt == L4 ? 4 : eve_fmt == L8 ? 8 : 2;
+                                    uint32_t mask = (1u << bits) - 1u;
+                                    uint32_t shift = 8 - bits - ((uint32_t)x * bits % 8);
+                                    uint8_t value = ((row_buf[(uint32_t)x * bits / 8] >> shift) & mask) * 255 / mask;
+                                    if(vr->sample_as_luminance) r = g = b = value;
+                                    else { r = g = b = 255; a = value; }
+                                    break;
+                                }
 #if (EVE_SUPPORT_CHIPID >= EVE_BT820)
+                            case RGB6:
+                            case ARGB6: {
+                                    /* RGB6 packs four little-endian 18-bit pixels
+                                     * into nine bytes; ARGB6 uses three bytes. */
+                                    uint32_t offset = eve_fmt == RGB6 ? ((uint32_t)x / 4) * 9 + (x % 4) * 2 : (uint32_t)x * 3;
+                                    uint32_t c = row_buf[offset] | ((uint32_t)row_buf[offset + 1] << 8)
+                                                 | ((uint32_t)row_buf[offset + 2] << 16);
+                                    if(eve_fmt == RGB6) c >>= (x % 4) * 2;
+                                    uint8_t b6 = c & 63, g6 = (c >> 6) & 63, r6 = (c >> 12) & 63;
+                                    b = (b6 << 2) | (b6 >> 4);
+                                    g = (g6 << 2) | (g6 >> 4);
+                                    r = (r6 << 2) | (r6 >> 4);
+                                    if(eve_fmt == ARGB6) { uint8_t a6 = (c >> 18) & 63; a = (a6 << 2) | (a6 >> 4); }
+                                    break;
+                                }
+                            case LA1:
+                            case LA2:
+                            case LA4: {
+                                    uint32_t bits = eve_fmt == LA1 ? 1 : eve_fmt == LA2 ? 2 : 4;
+                                    uint32_t shift = 8 - 2 * bits - ((uint32_t)x * 2 * bits % 8);
+                                    uint8_t c = row_buf[(uint32_t)x * 2 * bits / 8] >> shift;
+                                    uint32_t mask = (1u << bits) - 1u;
+                                    r = g = b = (c & mask) * 255 / mask;
+                                    a = ((c >> bits) & mask) * 255 / mask;
+                                    break;
+                                }
                             case LA8:
                                 r = g = b = row_buf[2 * x + 0];
                                 a = row_buf[2 * x + 1];
@@ -497,7 +577,10 @@ generic_download: {
                                     break;
                                 }
                             default:
-                                break;
+                                LV_LOG_WARN("EVE5: Download unsupported source format %d", eve_fmt);
+                                lv_free(argb_row);
+                                lv_free(rd.buf);
+                                return false;
                         }
                         argb_row[4 * x + 0] = b;
                         argb_row[4 * x + 1] = g;
@@ -558,6 +641,11 @@ generic_download: {
                                 break;
                             }
                         case LV_COLOR_FORMAT_L8:
+                            for(int32_t x = 0; x < w; x++) {
+                                dst_row[x] = (uint8_t)((77u * argb_row[4 * x + 2] + 151u * argb_row[4 * x + 1]
+                                                       + 28u * argb_row[4 * x + 0]) >> 8);
+                            }
+                            break;
                         case LV_COLOR_FORMAT_A8:
                             for(int32_t x = 0; x < w; x++) {
                                 dst_row[x] = argb_row[4 * x + 3];
@@ -573,8 +661,9 @@ generic_download: {
                             break;
                         default:
                             LV_LOG_WARN("EVE5: Download unsupported target format %d", lv_cf);
-                            lv_memcpy(dst_row, argb_row, LV_MIN(lv_stride, (uint32_t)(w * 4)));
-                            break;
+                            lv_free(argb_row);
+                            lv_free(rd.buf);
+                            return false;
                     }
                 }
 
