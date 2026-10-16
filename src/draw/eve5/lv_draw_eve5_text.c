@@ -671,7 +671,10 @@ static uint32_t font_get_generic_glyph(lv_draw_eve5_unit_t * u,
     uint32_t addr = EVE_GpuAlloc_Get(u->allocator, fv->glyph_handles[gid]);
     if(addr != GA_INVALID) return addr;
 
-    const lv_draw_buf_t * glyph_data = lv_font_get_glyph_bitmap(glyph_dsc->g, glyph_dsc->_draw_buf);
+    /* Resident glyphs need no CPU bitmap. Prepare scratch space only on a miss. */
+    lv_draw_buf_t * draw_buf = lv_draw_glyph_dsc_get_draw_buf(glyph_dsc);
+    if(draw_buf == NULL) return GA_INVALID;
+    const lv_draw_buf_t * glyph_data = lv_font_get_glyph_bitmap(glyph_dsc->g, draw_buf);
     if(glyph_data == NULL || glyph_data->data == NULL) return GA_INVALID;
 
     uint32_t glyph_size = eve_stride * g_h;
@@ -977,7 +980,7 @@ static void rom_label_render(lv_draw_eve5_unit_t * u, lv_draw_task_t * t,
     s_rom_line.active = false;
     s_rom_line.color_set = false;
 
-    lv_draw_label_iterate_characters(t, dsc, &t->area, rom_line_glyph_cb);
+    lv_draw_label_iterate_characters_internal(t, dsc, &t->area, rom_line_glyph_cb, true);
     rom_line_flush();
 
     lv_free(buf);
@@ -1477,7 +1480,7 @@ void lv_draw_eve5_hal_draw_label(lv_draw_eve5_unit_t * u, lv_draw_task_t * t)
         s_current_unit = u;
         s_current_layer = layer;
 
-        lv_draw_label_iterate_characters(t, dsc, &t->area, draw_glyph_cb);
+        lv_draw_label_iterate_characters_internal(t, dsc, &t->area, draw_glyph_cb, true);
 
         s_current_unit = NULL;
         s_current_layer = NULL;
@@ -1551,6 +1554,7 @@ void lv_draw_eve5_hal_draw_letter(lv_draw_eve5_unit_t * u, lv_draw_task_t * t)
 
     lv_draw_glyph_dsc_t glyph_dsc;
     lv_draw_glyph_dsc_init(&glyph_dsc);
+    glyph_dsc._draw_buf_deferred = true;
     glyph_dsc.opa = dsc->opa;
     glyph_dsc.bg_coords = NULL;
     glyph_dsc.color = dsc->color;
@@ -1637,7 +1641,7 @@ void lv_draw_eve5_alpha_draw_label(lv_draw_eve5_unit_t * u, lv_draw_task_t * t, 
     s_alpha_unit = u;
     s_alpha_layer = layer;
 
-    lv_draw_label_iterate_characters(t, dsc, &t->area, alpha_glyph_cb);
+    lv_draw_label_iterate_characters_internal(t, dsc, &t->area, alpha_glyph_cb, true);
 
     s_alpha_unit = NULL;
     s_alpha_layer = NULL;
@@ -1683,6 +1687,7 @@ void lv_draw_eve5_alpha_draw_letter(lv_draw_eve5_unit_t * u, lv_draw_task_t * t,
 
     lv_draw_glyph_dsc_t glyph_dsc;
     lv_draw_glyph_dsc_init(&glyph_dsc);
+    glyph_dsc._draw_buf_deferred = true;
     glyph_dsc.opa = dsc->opa;
     glyph_dsc.bg_coords = NULL;
     glyph_dsc.color = dsc->color;

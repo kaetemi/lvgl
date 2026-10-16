@@ -56,12 +56,25 @@ struct _lv_draw_glyph_dsc_t {
     int32_t rotation;
     lv_point_t pivot;          /**< Rotation pivot point associated with total glyph including line_height */
     lv_draw_buf_t * _draw_buf; /**< a shared draw buf for get_bitmap, do not use it directly, use glyph_data instead */
+    bool _draw_buf_deferred;  /**< Callback prepares the bitmap buffer only when CPU pixels are needed. */
 };
 
 
 /**********************
  * GLOBAL PROTOTYPES
  **********************/
+
+/** Internal iterator for draw units which can consume GPU-resident glyphs.
+ * When defer_draw_buf is true, the callback must call lv_draw_glyph_dsc_get_draw_buf()
+ * before fetching bitmap pixels that need a scratch buffer. Image/vector handling is unchanged.
+ */
+void lv_draw_label_iterate_characters_internal(lv_draw_task_t * t, const lv_draw_label_dsc_t * dsc,
+                                               const lv_area_t * coords, lv_draw_glyph_cb_t cb, bool defer_draw_buf);
+
+/** Prepare/reuse an A8 scratch buffer for dsc->g. Returns NULL on allocation failure.
+ * Only for bitmap glyphs. The iterator owns the buffer; direct-letter callers must destroy it.
+ */
+lv_draw_buf_t * lv_draw_glyph_dsc_get_draw_buf(lv_draw_glyph_dsc_t * dsc);
 
 void lv_draw_unit_draw_letter_internal(lv_draw_task_t * t, lv_draw_glyph_dsc_t * dsc,  const lv_point_t * pos,
                                        const lv_font_t * font, uint32_t letter, lv_draw_glyph_cb_t cb);
