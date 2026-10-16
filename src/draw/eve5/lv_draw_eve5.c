@@ -183,6 +183,7 @@ void lv_draw_eve5_init(EVE_HalContext *hal, EVE_GpuAlloc *allocator)
 	LV_UNUSED(phost); /* Only the multi-target macro expansions use it */
 
     lv_draw_eve5_unit_t * unit = lv_draw_create_unit(sizeof(lv_draw_eve5_unit_t));
+    /*Both render-target and direct display-list paths collect a complete layer.*/
 #ifdef EVE_SUPPORT_RENDERTARGET
     if(EVE_Hal_supportRenderTarget(hal)) {
         unit->base_unit.dispatch_cb = dispatch;
@@ -1643,11 +1644,15 @@ static int32_t dispatch_nort(lv_draw_unit_t * draw_unit, lv_layer_t * layer)
     int32_t queued_count = 0;
     int32_t blocked_count = 0;
 
+    LV_PROFILER_DRAW_BEGIN_TAG("eve5.collect");
+    LV_PROFILER_COUNTER_INIT(state_visits);
     for(t = layer->draw_task_head; t != NULL; t = t->next) {
+        LV_PROFILER_COUNTER_INC(state_visits);
         if(t->preferred_draw_unit_id != DRAW_UNIT_ID_EVE5) continue;
         switch(t->state) {
             case LV_DRAW_TASK_STATE_WAITING:
                 waiting_count++;
+                t->state = LV_DRAW_TASK_STATE_QUEUED;
                 break;
             case LV_DRAW_TASK_STATE_QUEUED:
                 queued_count++;
@@ -1660,20 +1665,19 @@ static int32_t dispatch_nort(lv_draw_unit_t * draw_unit, lv_layer_t * layer)
         }
     }
 
+    LV_PROFILER_COUNTER_ADD("eve5.state_visits", state_visits);
+    LV_PROFILER_COUNTER_ADD("eve5.claim_visits", 0);
+
     EVE5_LOG("EVE5 NORT: Dispatch layer=%p W=%d Q=%d B=%d",
              (void *)layer, waiting_count, queued_count, blocked_count);
 
-    /* New tasks arrived — claim them, wait for upstream */
+    /*New tasks were claimed above. Preserve the dispatch boundary before rendering.*/
     if(waiting_count > 0) {
-        for(t = layer->draw_task_head; t != NULL; t = t->next) {
-            if(t->preferred_draw_unit_id == DRAW_UNIT_ID_EVE5 &&
-               t->state == LV_DRAW_TASK_STATE_WAITING) {
-                t->state = LV_DRAW_TASK_STATE_QUEUED;
-            }
-        }
         lv_draw_dispatch_request();
+        LV_PROFILER_DRAW_END_TAG("eve5.collect");
         return waiting_count;
     }
+    LV_PROFILER_DRAW_END_TAG("eve5.collect");
 
     /* All queued and ready — render atomically */
     if(queued_count > 0 && layer->all_tasks_added && blocked_count == 0) {
