@@ -350,8 +350,13 @@ foreach(test_case_fname ${TEST_CASE_FILES})
         WORKING_DIRECTORY ${LVGL_TEST_DIR}
         COMMAND ${test_name})
 
-    if(LV_TEST_ENVIRONMENT)
-        set_tests_properties(${test_name} PROPERTIES ENVIRONMENT "${LV_TEST_ENVIRONMENT}")
+    set(test_environment ${LV_TEST_ENVIRONMENT})
+    get_source_file_property(test_extra_environment ${test_case_fname} LV_TEST_ENVIRONMENT)
+    if(test_extra_environment)
+        list(APPEND test_environment ${test_extra_environment})
+    endif()
+    if(test_environment)
+        set_tests_properties(${test_name} PROPERTIES ENVIRONMENT "${test_environment}")
     endif()
 
     if(CONFIG_LV_USE_NANOVG_TEST_HEADLESS)
