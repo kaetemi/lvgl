@@ -704,8 +704,10 @@ static lv_draw_buf_t * create_tile_buf(EVE_HalContext * phost, lv_color_format_t
     buf->header.flags = LV_IMAGE_FLAGS_MODIFIABLE | LV_IMAGE_FLAGS_ALLOCATED;
     /* As the swapchain's: a tile the EVE5 draw unit renders needs no CPU clear */
     buf->handlers = full_buf_handlers();
-    /* Reserve 64 rows; lv_refr uses this capacity to determine tile height. */
-    buf->data_size = stride * 64;
+    /* Match LVGL's allocation-size rounding so reshape can grow back after a
+     * shorter final tile. An unrounded capacity can reject the next full tile,
+     * leaving its header short when the software draw unit takes over. */
+    buf->data_size = LV_ROUND_UP(stride * 64, LV_DRAW_BUF_ALIGN);
     return buf;
 }
 
@@ -811,7 +813,8 @@ static lv_draw_buf_t * create_full_buf(EVE_HalContext * phost)
      * ARGB8888 or XRGB8888; otherwise, a color format change could make lv_refr split the frame
      * into tiles, each rendering and presenting the swapchain separately.
      */
-    uint32_t data_size = lv_draw_buf_width_to_stride((uint32_t)W, LV_COLOR_FORMAT_ARGB8888) * (uint32_t)H;
+    uint32_t data_size = LV_ROUND_UP(lv_draw_buf_width_to_stride((uint32_t)W, LV_COLOR_FORMAT_ARGB8888) *
+                                    (uint32_t)H, LV_DRAW_BUF_ALIGN);
 
     lv_draw_buf_t * buf = lv_malloc_zeroed(sizeof(lv_draw_buf_t));
     if(buf == NULL) return NULL;
