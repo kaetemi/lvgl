@@ -1133,8 +1133,10 @@ static bool eve5_load_esdm_host(lv_draw_eve5_unit_t * u, const char * path,
     /* Palette (if any) precedes the bitmap in one contiguous allocation,
      * matching the driver's PALETTEDARGB8 layout. */
     uint32_t pal_region = paletted ? (((uint32_t)bmp.palette_size + 31u) & ~31u) : 0;
-    uint32_t data_bytes = (bmp.compression == EVE5_ESDM_ASSET && bmp.raw_size)
-                          ? bmp.raw_size : (uint32_t)(bmp.stride * bmp.height);
+    uint64_t payload = (bmp.compression == EVE5_ESDM_ASSET && bmp.raw_size)
+                         ? bmp.raw_size : (uint64_t)bmp.stride * eve5_bitmap_row_count(bmp.format, bmp.height);
+    if(payload > UINT32_MAX - pal_region) return false;
+    uint32_t data_bytes = (uint32_t)payload;
     uint32_t alloc_size = pal_region + data_bytes;
 
 #if LV_USE_OS

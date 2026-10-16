@@ -123,6 +123,20 @@ void eve5_read_ramg_bytes(EVE_HalContext * hal, void * dst, uint32_t address, ui
     if(size) EVE_Hal_rdMem(hal, out, address, size);
 }
 
+uint32_t eve5_bitmap_row_count(uint32_t format, uint32_t height)
+{
+#ifdef EVE_SUPPORT_ASTC
+    if(format >= COMPRESSED_RGBA_ASTC_4x4_KHR && format <= COMPRESSED_RGBA_ASTC_12x12_KHR) {
+        static const uint8_t block_height[] = {4, 4, 5, 5, 6, 5, 6, 8, 5, 6, 8, 10, 10, 12};
+        uint32_t block = block_height[format - COMPRESSED_RGBA_ASTC_4x4_KHR];
+        return height / block + (height % block != 0);
+    }
+#else
+    LV_UNUSED(format);
+#endif
+    return height;
+}
+
 bool eve5_parse_esdm_bmp(const uint8_t * data, uint32_t size, eve5_esdm_bmp_t * out)
 {
     if(data == NULL || out == NULL || size < EVE5_ESDM_BMP_SIZE) return false;

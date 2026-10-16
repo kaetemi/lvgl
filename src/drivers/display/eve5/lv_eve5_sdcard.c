@@ -1156,8 +1156,10 @@ bool lv_eve5_sdcard_load_esdm(const char * path, EVE_GpuHandle *handle,
      * matching the driver's PALETTEDARGB8 layout. Keep the bitmap region
      * 32-byte aligned for CMD_FSREAD. */
     uint32_t pal_region = paletted ? (((uint32_t)bmp.palette_size + 31u) & ~31u) : 0;
-    uint32_t data_bytes = (bmp.compression == EVE5_ESDM_ASSET && bmp.raw_size)
-                          ? bmp.raw_size : (uint32_t)(bmp.stride * bmp.height);
+    uint64_t payload = (bmp.compression == EVE5_ESDM_ASSET && bmp.raw_size)
+                         ? bmp.raw_size : (uint64_t)bmp.stride * eve5_bitmap_row_count(bmp.format, bmp.height);
+    if(payload > UINT32_MAX - pal_region) return false;
+    uint32_t data_bytes = (uint32_t)payload;
     uint32_t alloc_size = pal_region + data_bytes;
 
     bool ok = false;

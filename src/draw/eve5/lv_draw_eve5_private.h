@@ -27,6 +27,7 @@ extern "C" {
 #include "../../misc/lv_area_private.h"
 #include "../../misc/cache/lv_cache_entry_private.h"
 #include "../../drivers/display/eve5/lv_eve5.h"
+#include "../../drivers/display/eve5/lv_eve5_image_private.h"
 
 /*********************
  * CONFIGURATION
@@ -1025,6 +1026,7 @@ static inline void eve5_set_bitmap_layout(lv_draw_eve5_unit_t * u, uint16_t eve_
     LV_UNUSED(phost);
 #if (EVE_SUPPORT_CHIPID >= EVE_BT815) || defined(EVE_MULTI_GRAPHICS_TARGET)
     if(eve5_is_extended_format(eve_format)) {
+        height = (int32_t)eve5_bitmap_row_count(eve_format, (uint32_t)height);
         lv_draw_eve5_bitmap_layout(u, GLFORMAT, stride, height);
         EVE_CoDl_bitmapExtFormat(phost, eve_format);
         EVE_CoDl_bitmapSwizzle(phost, RED, GREEN, BLUE, ALPHA);
