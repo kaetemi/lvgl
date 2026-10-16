@@ -108,6 +108,21 @@ static inline uint32_t eve5_rd32le(const uint8_t * p, uint32_t o)
            | ((uint32_t)p[o + 2] << 16) | ((uint32_t)p[o + 3] << 24);
 }
 
+void eve5_read_ramg_bytes(EVE_HalContext * hal, void * dst, uint32_t address, uint32_t size)
+{
+    uint8_t * out = dst;
+    uint32_t offset = address & 3u;
+    if(offset && size) {
+        uint32_t word = EVE_Hal_rd32(hal, address & ~3u);
+        uint32_t count = LV_MIN(size, 4u - offset);
+        for(uint32_t i = 0; i < count; i++) out[i] = (uint8_t)(word >> (8u * (offset + i)));
+        out += count;
+        address += count;
+        size -= count;
+    }
+    if(size) EVE_Hal_rdMem(hal, out, address, size);
+}
+
 bool eve5_parse_esdm_bmp(const uint8_t * data, uint32_t size, eve5_esdm_bmp_t * out)
 {
     if(data == NULL || out == NULL || size < EVE5_ESDM_BMP_SIZE) return false;

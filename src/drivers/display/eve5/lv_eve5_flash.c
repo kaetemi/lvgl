@@ -139,6 +139,11 @@ void lv_fs_eve5_flash_deinit(void)
     lv_memzero(&s_ctx, sizeof(s_ctx));
 }
 
+void lv_eve5_flash_reset(lv_display_t * disp)
+{
+    if(s_ctx.disp == disp) s_ctx.flash_ready = false;
+}
+
 /**********************
  *   STATIC FUNCTIONS
  **********************/
@@ -319,6 +324,15 @@ static lv_fs_res_t fs_read(lv_fs_drv_t * drv, void * file_p, void * buf, uint32_
     lv_eve5_hal_lock(ctx->disp);
 #endif
 
+    /* A decoder fault may have reset the coprocessor while this file was open. */
+    if(!ensure_flash_ready(ctx)) {
+#if LV_USE_OS
+        lv_eve5_hal_unlock(ctx->disp);
+#endif
+        if(br) *br = 0;
+        return LV_FS_RES_FS_ERR;
+    }
+
     EVE_GpuHandle handle = EVE_GpuAlloc_Alloc(ctx->alloc, aligned_num, GA_ALIGN_4);
     uint32_t ramg_addr = EVE_GpuAlloc_Get(ctx->alloc, handle);
 
@@ -357,7 +371,7 @@ static lv_fs_res_t fs_read(lv_fs_drv_t * drv, void * file_p, void * buf, uint32_
     }
     ctx->hal->SuppressErrorOverlay = false;
 
-    EVE_Hal_rdMem(ctx->hal, buf, ramg_addr + head_pad, to_read);
+    eve5_read_ramg_bytes(ctx->hal, buf, ramg_addr + head_pad, to_read);
     EVE_GpuAlloc_Free(ctx->alloc, handle);
 
 #if LV_USE_OS
@@ -623,6 +637,7 @@ EVE_GpuAlloc * lv_eve5_flash_get_allocator(void)
 
 void lv_fs_eve5_flash_init(lv_display_t * disp)          { (void)disp; }
 void lv_fs_eve5_flash_deinit(void)                        {}
+void lv_eve5_flash_reset(lv_display_t * disp)             { (void)disp; }
 bool lv_eve5_flash_ready(void)                            { return false; }
 bool lv_eve5_flash_is_path(const char * path)             { (void)path; return false; }
 EVE_GpuAlloc * lv_eve5_flash_get_allocator(void)          { return NULL; }

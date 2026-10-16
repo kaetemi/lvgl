@@ -15,6 +15,10 @@
 
 #if LV_USE_EVE5
 
+#if LV_USE_FS_EVE5_FLASH
+    #include "lv_eve5_flash.h"
+#endif
+
 #include "../../../display/lv_display_private.h"
 #include "../../../draw/lv_draw_buf_private.h"
 #include "../../../core/lv_refr_private.h"
@@ -642,6 +646,9 @@ void lv_eve5_reset_coprocessor(lv_display_t * disp)
     /* Caller has already detected phost->CmdFault and called us with the
      * HAL mutex held — EVE_Util_resetCoprocessor talks to the chip. */
     EVE_Util_resetCoprocessor(drvr->hal);
+#if LV_USE_FS_EVE5_FLASH
+    lv_eve5_flash_reset(disp);
+#endif
 
     /* Dispatch the registered draw-unit cache-invalidation hook. The
      * coprocessor's bitmap-handle table is empty after reset, so any

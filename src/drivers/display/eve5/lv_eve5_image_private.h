@@ -37,6 +37,9 @@ extern "C" {
 /** Check if a file path ends with a given extension (case-insensitive, ext includes dot). */
 bool eve5_has_extension(const char * path, const char * ext);
 
+/** Read arbitrary RAM_G byte ranges using word-aligned HAL transactions. */
+void eve5_read_ramg_bytes(EVE_HalContext * hal, void * dst, uint32_t address, uint32_t size);
+
 /** Check if a path is a JPEG or PNG file. Sets *is_jpeg and *is_png accordingly. */
 bool eve5_is_jpeg_or_png(const char * path, bool *is_jpeg, bool *is_png);
 

@@ -295,7 +295,7 @@ static lv_fs_res_t fs_read(lv_fs_drv_t * drv, void * file_p, void * buf, uint32_
 #if LV_USE_OS
         lv_eve5_hal_lock(ctx->disp);
 #endif
-        EVE_Hal_rdMem(ctx->hal, buf, ramg_addr + file->pos, to_read);
+        eve5_read_ramg_bytes(ctx->hal, buf, ramg_addr + file->pos, to_read);
 #if LV_USE_OS
         lv_eve5_hal_unlock(ctx->disp);
 #endif

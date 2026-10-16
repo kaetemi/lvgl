@@ -88,6 +88,9 @@ bool lv_eve5_flash_ready(void);
  */
 void lv_fs_eve5_flash_deinit(void);
 
+/** Invalidate attachment state after a coprocessor reset. Caller holds the HAL lock. */
+void lv_eve5_flash_reset(lv_display_t * disp);
+
 /**
  * Check if a path is for the EVE5 flash filesystem.
  * Paths should be in the format "X:/address" where X is the configured drive letter.
