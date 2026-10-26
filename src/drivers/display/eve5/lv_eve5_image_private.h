@@ -96,8 +96,8 @@ static inline int32_t eve5_format_bpp(uint32_t eve_format)
  * Binary metadata sidecar placed next to an asset file: for "image.raw" the
  * sidecar is "image.raw.esdm". Provides the EVE bitmap format, dimensions,
  * stride, and load method that a raw/compressed asset file does not carry
- * itself. Mirrors the ESD Core "BMP" record (see esd_core/Esd_BitmapInfo.c
- * and IMAGE_FORMATS.md). Only the BMP type is consumed here.
+ * itself. Mirrors the ESD Core "BMP" record (see esd_core/Esd_BitmapInfo.c).
+ * Only the BMP type is consumed here.
  **********************/
 
 /** Metadata sidecar filename extension (matches EVE_METADATA_FILE_EXT). */

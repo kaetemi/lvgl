@@ -10,7 +10,7 @@
  * to be relative to the load address, and binds bitmap-handle references
  * so the loaded block is immediately usable by CMD_TEXT.
  *
- * Until a `.esdm` metadata sidecar is available (see FONT_METADATA.md),
+ * Until a `.esdm` metadata sidecar for fonts is defined,
  * the caller passes per-font metadata (path, load options, optional metric
  * overrides) through lv_eve5_asset_font_info_t at create time. Most metric
  * fields can be left at 0 — they default to values read from the loaded

@@ -152,7 +152,7 @@ bool eve5_parse_esdm_bmp(const uint8_t * data, uint32_t size, eve5_esdm_bmp_t * 
     out->ext_len = data[7];
     out->raw_size = eve5_rd32le(data, 8);
 
-    /* BMP type-specific (offsets from start, see IMAGE_FORMATS.md). */
+    /* BMP type-specific (offsets from start, as Esd_BitmapInfo.c reads them). */
     out->width = (int32_t)eve5_rd32le(data, 12);
     out->height = (int32_t)eve5_rd32le(data, 16);
     out->stride = (int32_t)eve5_rd32le(data, 20);

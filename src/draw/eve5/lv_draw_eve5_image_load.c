@@ -573,7 +573,7 @@ bool lv_draw_eve5_try_load_file_image(lv_draw_eve5_unit_t * u, const void * src,
 /**********************
  * LVGL .bin DIRECT LOAD
  *
- * LVGL's `.bin` is just a 12-byte header (lv_image_header_t — see LVGL_BIN_FORMAT.md)
+ * LVGL's `.bin` is just a 12-byte header (lv_image_header_t, lv_image_dsc.h)
  * plus a body whose byte layout matches the in-memory layout LVGL would use for the
  * same lv_color_format_t. For every CF whose pixel encoding is the same as an EVE
  * bitmap format we can stream the body straight into RAM_G — no CPU decode, no
@@ -929,7 +929,7 @@ bool lv_draw_eve5_try_load_lvgl_bin_image(lv_draw_eve5_unit_t * u, const void * 
  * A ".esdm" metadata sidecar lets a raw / deflate / relocatable-asset bitmap
  * load directly to RAM_G in its native EVE format, skipping CMD_LOADIMAGE
  * decode. The sidecar supplies the EVE bitmap format, dimensions, stride, and
- * load method (see IMAGE_FORMATS.md and esd_core/Esd_BitmapInfo.c).
+ * load method, as the ESD Core "BMP" record (esd_core/Esd_BitmapInfo.c).
  *
  * EVE SD card images use raw coprocessor FS commands (in lv_eve5_sdcard.c) for
  * both the sidecar and the data, deliberately never touching the LVGL SD

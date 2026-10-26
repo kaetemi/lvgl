@@ -59,8 +59,8 @@
  * draw the core as a rounded rectangle instead.
  *
  * The filter width and core edge position were fitted to the software renderer
- * across multiple sizes, radii, and shadow widths using tests/tools/shadow_fit
- * in eve_apps. The fitted filter width is 0.94 * blur, and the core edge is
+ * across multiple sizes, radii, and shadow widths with a standalone fitting
+ * program (shadow_fit). The fitted filter width is 0.94 * blur, and the core edge is
  * 0.965 * blur from the texture's outer edge.
  *
  * == Texture Caching ==

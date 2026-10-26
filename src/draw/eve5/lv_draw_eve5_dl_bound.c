@@ -13,8 +13,8 @@
  * commands at the entries they write (EVE_CO_DL_ENTRIES_*). Loops are
  * bounded by the counts computed here: polyline segments, dash gaps, tile
  * stamps and label characters. They were derived with a branch-aware static
- * analysis of the preprocessed draw sources (eve_apps
- * tests/scripts/eve5_dl_bound.py); rerun it when a draw function changes.
+ * analysis of the preprocessed draw sources (eve5_dl_bound.py, kept with the
+ * EVE test suite); rerun it when a draw function changes.
  * Builds with EVE5_DL_STATS=1 log every task whose measured entries exceed
  * its bound.
  *
