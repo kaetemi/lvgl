@@ -791,6 +791,11 @@ lv_draw_buf_t * lv_draw_glyph_dsc_get_draw_buf(lv_draw_glyph_dsc_t * dsc)
             LV_LOG_WARN("Failed to allocate memory for glyph draw buffer");
             return NULL;
         }
+        if(!lv_draw_buf_ensure_resident(draw_buf, NULL)) {
+            LV_LOG_WARN("Failed to allocate memory for glyph draw buffer");
+            lv_draw_buf_destroy(draw_buf);
+            return NULL;
+        }
         draw_buf->header.h = g->box_h;
         dsc->_draw_buf = draw_buf;
     }
