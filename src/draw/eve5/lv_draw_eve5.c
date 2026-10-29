@@ -184,6 +184,7 @@ void lv_draw_eve5_init(EVE_HalContext *hal, EVE_GpuAlloc *allocator)
 
     lv_draw_eve5_unit_t * unit = lv_draw_create_unit(sizeof(lv_draw_eve5_unit_t));
     /*Both render-target and direct display-list paths collect a complete layer.*/
+    unit->base_unit.requires_all_tasks = true;
 #ifdef EVE_SUPPORT_RENDERTARGET
     if(EVE_Hal_supportRenderTarget(hal)) {
         unit->base_unit.dispatch_cb = dispatch;
